@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,98 +7,199 @@
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-
 <body>
-    <div class="container mt-5">
-        <h2 class="mb-4">QobuzDlGui-Reborn</h2>
-        <form action="/" method="post" id="downloadForm">
-            <div class="form-group">
-                <label for="email">Your QoBuz Email:</label>
-                <input type="email" class="form-control" name="email" id="email" value="{{ email }}" required>
-            </div>
-            <div class="form-group">
-                <label for="password">Your QoBuz Password:</label>
-                <input type="password" class="form-control" name="password" id="password" value="{{ password }}" required>
-            </div>
-            <div class="form-group">
-                <label for="urls">Qobuz URLs (one per line)</label>
-                <textarea class="form-control" name="urls" id="urls" rows="6" placeholder="Paste one URL per line" required></textarea>
-            </div>
-            <div class="form-group">
-                <label for="download_location">Download Location:</label>
-                <input type="text" class="form-control" name="download_location" id="download_location" value="{{ download_location }}" required>
-            </div>
-            <div class="form-group">
-                <label for="quality">Quality:</label>
-                <select class="form-control" name="quality" id="quality" required>
-                    <option value="27">Hi-Res Audio FLAC - 24 bit, up to 192kHz</option>
-                    <option value="7">Hi-Res Audio FLAC - 24 bit, up to 96kHz</option>
-                    <option value="6">CD Quality FLAC - 16 bit, 44.1kHz</option>
-                    <option value="5">MP3 - 320 kbps</option>
-                </select>
-            </div>
-            <div class="form-group form-check">
-                <input type="checkbox" class="form-check-input" name="rememberMe" id="rememberMe">
-                <label class="form-check-label" for="rememberMe">Remember me and settings</label>
-            </div>
-            <button type="submit" class="btn btn-primary">Download</button>
-        </form>
-        <div id="progress-container" style="display: none;">
-            <h4>Downloading...</h4>
-            <div class="progress">
-                <div class="progress-bar" role="progressbar" style="width: 0%;" id="progress-bar"></div>
-            </div>
-            <p id="status-text">Starting download...</p>
-        </div>
-        
-        <script>
-        $('#downloadForm').submit(function(e) {
-            e.preventDefault();
-            $('#progress-container').show();
-        
-            $.ajax({
-                type: 'POST',
-                url: '/',
-                data: $(this).serialize(),
-                success: function(data) {
-                    if (data.status === 'completed') {
-                        $('#progress-bar').css('width', '100%');
-                        $('#progress-bar').css('background', '#008000');
-                        $('#status-text').text('Download Completed!');
+<div class="container mt-5">
+    <h2 class="mb-4">QobuzDlGui-Reborn</h2>
 
-                        // Reload the page after 1 second
-                        setTimeout(function() {
-                            location.reload();
-                        }, 2000);
-                    }
-                },
-                error: function(jqXHR, textStatus, errorThrown) {
-                    $('#status-text').text('An error occurred: ' + jqXHR.responseJSON.message);
-                    $('#progress-bar').css('background', '#FF0000');
-                    setTimeout(function() {
-                            location.reload();
-                        }, 2000);
-                },
-                xhr: function() {
-                    var xhr = new window.XMLHttpRequest();
-                    xhr.upload.addEventListener("progress", function(evt) {
-                        if (evt.lengthComputable) {
-                            var percentComplete = evt.loaded / evt.total;
-                            percentComplete = parseInt(percentComplete) * 10;
-                            $('#progress-bar').css('width', percentComplete + '%');
-                        }
-                    }, false);
-                    return xhr;
-                }
-            });
-        });
-        </script>
-        <div class="footer">
-            <p>QoBuzDlGui-Reborn &copy; Gyarbij and LilKidSuave 2023-2024</p>
+    <!-- Settings section -->
+    <div class="card settings-card mb-4">
+        <div class="card-header" id="settingsHeading">
+            <button class="btn btn-link settings-toggle" type="button" data-toggle="collapse" data-target="#settingsBody">
+                ⚙️ Settings
+            </button>
         </div>
-    </div>   
+        <div id="settingsBody" class="collapse show">
+            <div class="card-body">
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label for="email">Qobuz Email</label>
+                        <input type="email" class="form-control" id="email" value="{{ email }}" placeholder="your@email.com">
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label for="password">Qobuz Password</label>
+                        <input type="password" class="form-control" id="password" value="{{ password }}" placeholder="••••••••">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-8">
+                        <label for="download_location">Download Location</label>
+                        <input type="text" class="form-control" id="download_location" value="{{ download_location }}" placeholder="/downloads">
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label for="quality">Quality</label>
+                        <select class="form-control" id="quality">
+                            <option value="27" {% if quality == 27 %}selected{% endif %}>Hi-Res 24bit / up to 192kHz</option>
+                            <option value="7" {% if quality == 7 or quality == '7' %}selected{% endif %}>Hi-Res 24bit / up to 96kHz</option>
+                            <option value="6" {% if quality == 6 %}selected{% endif %}>CD Quality 16bit / 44.1kHz</option>
+                            <option value="5" {% if quality == 5 %}selected{% endif %}>MP3 320kbps</option>
+                        </select>
+                    </div>
+                </div>
+                <button id="saveSettingsBtn" class="btn btn-secondary">💾 Save Settings</button>
+                <span id="saveStatus" class="ml-3 save-status"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- URL input section -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <label for="urlInput">Qobuz URLs <span class="text-muted small">(one per line)</span></label>
+            <textarea class="form-control url-textarea" id="urlInput" rows="6"
+                placeholder="https://www.qobuz.com/album/...&#10;https://www.qobuz.com/track/...&#10;https://www.qobuz.com/playlist/..."></textarea>
+            <div class="mt-3 d-flex align-items-center">
+                <button id="addToQueueBtn" class="btn btn-primary mr-3">▶ Add to Queue &amp; Download</button>
+                <button id="clearFinishedBtn" class="btn btn-outline-secondary btn-sm">🗑 Clear Finished</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Queue table -->
+    <div id="queueSection">
+        <h5 class="mb-3">Download Queue</h5>
+        <div id="emptyQueueMsg" class="text-muted mb-3">No items in queue.</div>
+        <table class="table table-dark table-sm queue-table" id="queueTable" style="display:none;">
+            <thead>
+                <tr>
+                    <th style="width:40px">#</th>
+                    <th>URL</th>
+                    <th style="width:160px">Status</th>
+                </tr>
+            </thead>
+            <tbody id="queueBody"></tbody>
+        </table>
+    </div>
+
+    <div class="footer mt-4">
+        <p>QoBuzDlGui-Reborn &copy; Gyarbij, LilKidSuave &amp; danieljcroberts 2023–2025</p>
+    </div>
+</div>
+
+<script>
+const socket = io();
+
+socket.on('queue_update', function(data) {
+    renderQueue(data.queue);
+});
+
+// Fetch current queue on page load
+fetch('/queue_state').then(r => r.json()).then(data => renderQueue(data.queue));
+
+function statusBadge(item) {
+    if (item.status === 'queued') {
+        return `<span class="badge badge-secondary">⏳ Queue #${item.position}</span>`;
+    } else if (item.status === 'downloading') {
+        return `<span class="badge badge-primary anim-pulse">⬇ Downloading…</span>`;
+    } else if (item.status === 'downloaded') {
+        return `<span class="badge badge-success">✓ Done</span>`;
+    } else if (item.status === 'failed') {
+        return `<span class="badge badge-danger">✗ Failed</span>`;
+    }
+    return `<span class="badge badge-light">${item.status}</span>`;
+}
+
+function renderQueue(queue) {
+    const body = document.getElementById('queueBody');
+    const table = document.getElementById('queueTable');
+    const empty = document.getElementById('emptyQueueMsg');
+
+    if (!queue || queue.length === 0) {
+        table.style.display = 'none';
+        empty.style.display = '';
+        return;
+    }
+
+    table.style.display = '';
+    empty.style.display = 'none';
+
+    body.innerHTML = '';
+    queue.forEach(function(item, idx) {
+        const tr = document.createElement('tr');
+        tr.className = item.status === 'downloading' ? 'row-downloading' :
+                       item.status === 'downloaded'  ? 'row-done' :
+                       item.status === 'failed'      ? 'row-failed' : '';
+        tr.innerHTML = `
+            <td class="text-muted">${idx + 1}</td>
+            <td class="url-cell" title="${escHtml(item.url)}">${escHtml(item.url)}</td>
+            <td>${statusBadge(item)}</td>
+        `;
+        body.appendChild(tr);
+    });
+}
+
+function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function getFormData() {
+    return {
+        email: document.getElementById('email').value.trim(),
+        password: document.getElementById('password').value,
+        download_location: document.getElementById('download_location').value.trim(),
+        quality: parseInt(document.getElementById('quality').value),
+    };
+}
+
+document.getElementById('addToQueueBtn').addEventListener('click', function() {
+    const raw = document.getElementById('urlInput').value;
+    const urls = raw.split('\n').map(u => u.trim()).filter(u => u.length > 0);
+    if (urls.length === 0) {
+        alert('Please enter at least one URL.');
+        return;
+    }
+    const payload = Object.assign({}, getFormData(), { urls: urls });
+
+    fetch('/add_urls', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(r => r.json()).then(data => {
+        if (data.status === 'ok') {
+            document.getElementById('urlInput').value = '';
+        } else {
+            alert('Error: ' + (data.message || 'Unknown error'));
+        }
+    }).catch(e => alert('Request failed: ' + e));
+});
+
+document.getElementById('clearFinishedBtn').addEventListener('click', function() {
+    fetch('/clear_finished', { method: 'POST' })
+        .then(r => r.json())
+        .then(() => {});
+});
+
+document.getElementById('saveSettingsBtn').addEventListener('click', function() {
+    const btn = this;
+    const status = document.getElementById('saveStatus');
+    btn.disabled = true;
+    fetch('/save_settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(getFormData())
+    }).then(r => r.json()).then(data => {
+        status.textContent = '✓ Saved';
+        status.className = 'ml-3 save-status text-success';
+        btn.disabled = false;
+        setTimeout(() => { status.textContent = ''; }, 3000);
+    }).catch(e => {
+        status.textContent = '✗ Failed';
+        status.className = 'ml-3 save-status text-danger';
+        btn.disabled = false;
+    });
+});
+</script>
 </body>
-
 </html>
