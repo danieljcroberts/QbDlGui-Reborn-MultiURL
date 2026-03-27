@@ -2,8 +2,14 @@ version: '3.4'
 
 services:
   qbdlgui:
-    image: ghcr.io/lilkidsuave/qbdlgui-reborn:latest
+    image: ghcr.io/danieljcroberts/qbdlgui-reborn-multiurl:latest
+    container_name: qbdlgui
     ports:
       - 5000:5000
     volumes:
-      - Directory:/downloads
+      - /your/download/path:/downloads
+      - qbdlgui-config:/config
+    restart: unless-stopped
+
+volumes:
+  qbdlgui-config:
