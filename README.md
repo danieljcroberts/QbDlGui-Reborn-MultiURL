@@ -1,116 +1,42 @@
-# QbDlGui-Reborn
+# QbDlGui-Reborn (danieljcroberts fork)
 
-QbDlGui-Reborn is a gui for qobuz-dl by @vitiko98 and @lilkidsuave
+A web GUI for downloading lossless music from Qobuz, forked from [lilkidsuave/QbDlGui-Reborn](https://github.com/lilkidsuave/QbDlGui-Reborn).
 
-![alt text](https://github.com/lilkidsuave/QbDlGui-Reborn/blob/main/Images/Screenshot2.png)
+## Enhancements in this fork
 
-## Features
+- **Multi-URL queue**: paste as many Qobuz URLs as you like (one per line) — they are processed sequentially
+- **Live queue status table**: shows each URL with its status (queued with position, downloading, done, failed), updated in real-time via WebSockets
+- **Persistent settings**: clicking *Save Settings* writes email, password, download location and quality to `/config/settings.json` inside the container — they survive restarts without needing env vars or session cookies. The URL field is never saved.
+- **Clear Finished button**: removes completed/failed items from the queue display
+- **Larger URL input**: textarea instead of a single-line field
 
-- Download albums, tracks, artists, and playlists from Qobuz.
-- Supports various quality levels.
-- Embed album art into files.
-- Web GUI for easy interaction.
-- Easy to setup via Docker Compose.
-- Runs on Flask via Gunicorn with Gevent.
+## Docker
 
-## Installation
+```yaml
+services:
+  qbdlgui:
+    image: ghcr.io/danieljcroberts/qbdlgui-reborn-multiurl:latest
+    ports:
+      - 5000:5000
+    volumes:
+      - /your/music/path:/downloads
+      - qbdlgui-config:/config
+    restart: unless-stopped
 
-### Docker
-
-Before using the docker compose, make sure to edit your /downloads bind.
-Same goes for the docker command below.
-
-```
-docker run -d --name qbdlgui -p 5000:5000 -v Directory:/downloads ghcr.io/lilkidsuave/qbdlgui-reborn:latest
-```
-
-Access the web gui via localhost:5000
-
-### Host Install
-
-1. Clone the repository and cd into:
-
-```
-https://github.com/lilkidsuave/QbDlGui-Reborn.git
-```
-```
-cd QbDlGui-Reborn
+volumes:
+  qbdlgui-config:
 ```
 
-2. Virtual Environment: Consider using a virtual environment to isolate the dependencies for the project. This can help avoid conflicts between different versions of libraries. You can create a virtual environment using:
-
-```
-python3 -m venv qbdl
-source qbdl/bin/activate
-```
-
-3. Install the dependencies:
-
-#### Alpine (exactly like the docker image)
-
-```
-apk add gcc musl-dev libffi-dev openssl-dev
-```
-```
-pip install -r requirements.txt
-```
-#### Debian/Ubuntu
-
-```
-apt-get update && apt-get install -y gcc libc-dev libffi-dev libssl-dev
-```
-```
-pip install -r requirements.txt
-```
-
-#### Fedora
-
-```
-dnf install -y gcc glibc-devel libffi-devel openssl-devel
-```
-```
-pip install -r requirements.txt
-```
-
-#### Arch
-
-```
-pacman -Sy --noconfirm gcc glibc libffi openssl
-```
-```
-pip install -r requirements.txt
-```
+Access at `http://localhost:5000`
 
 ## Usage
 
-### Command-Line Interface
+1. Fill in your Qobuz credentials, download path and quality, then click **Save Settings**
+2. Paste one or more Qobuz URLs into the URL box (one per line)
+3. Click **Add to Queue & Download** — downloads start immediately and the queue table updates live
+4. Use **Clear Finished** to tidy up completed entries
 
-Refer to the existing documentation for command-line usage.
+## Credits
 
-### Web GUI
-
-To use the web GUI, follow these steps:
-
-1. Run the web GUI script:
-
-
-```
-gunicorn -b 0.0.0.0:5000 --worker-class=gevent --workers=4 qbdl_gui:app
-```
-
-
-2. Open a web browser and navigate to:
-
-```
-http://0.0.0.0:5000/
-```
-```
-localhost:5000
-```
-
-3. Enter your Qobuz email, password, download URL, download location, and quality.
-4. Click the "Download" button to start the download.
-
-## Contributing
-
-Please refer to the existing guidelines for contributing to this project.
+Original project by [@vitiko98](https://github.com/vitiko98), [@lilkidsuave](https://github.com/lilkidsuave), and Gyarbij.  
+This fork maintained by [@danieljcroberts](https://github.com/danieljcroberts).
