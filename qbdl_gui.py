@@ -31,7 +31,10 @@ def index():
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
-        url = request.form['url']
+
+        # CHANGED: read textarea input instead of single URL
+        raw_input = request.form['urls']
+
         download_location = request.form['download_location']
         quality = int(request.form['quality'])
         remember = request.form.get('rememberMe')
@@ -40,7 +43,12 @@ def index():
             qobuz = QobuzDL(directory=download_location, quality=quality)
             qobuz.get_tokens()
             qobuz.initialize_client(email, password, qobuz.app_id, qobuz.secrets)
-            download_files(qobuz, [url])
+
+            # CHANGED: split textarea into multiple URLs
+            url_list = [u.strip() for u in raw_input.splitlines() if u.strip()]
+
+            download_files(qobuz, url_list)
+
         except Exception as e:
             logging.error("An error occurred: " + str(e))
             return jsonify(status='error', message='An internal error occurred. Please try again later.'), 500
