@@ -264,19 +264,28 @@ def artist_releases():
         offset, total = 0, 9999
 
         while offset < total:
-            r = req_lib.get(
-                'https://musicbrainz.org/ws/2/release-group',
-                params={
-                    'artist': mbid,
-                    'fmt': 'json',
-                    'limit': 100,
-                    'offset': offset,
-                    'inc': 'releases',
-                },
-                headers=MB_UA,
-                timeout=10
-            )
-            r.raise_for_status()
+            for attempt in range(3):
+                try:
+                    r = req_lib.get(
+                        'https://musicbrainz.org/ws/2/release-group',
+                        params={
+                            'artist': mbid,
+                            'fmt': 'json',
+                            'limit': 100,
+                            'offset': offset,
+                        },
+                        headers=MB_UA,
+                        timeout=15
+                    )
+                    if r.status_code == 503 or r.status_code == 429:
+                        time.sleep(2 ** attempt)
+                        continue
+                    r.raise_for_status()
+                    break
+                except Exception:
+                    if attempt == 2:
+                        raise
+                    time.sleep(2 ** attempt)
             data = r.json()
             total = data.get('release-group-count', 0)
             rgs = data.get('release-groups', [])
@@ -285,7 +294,7 @@ def artist_releases():
             all_rgs.extend(rgs)
             offset += 100
             if offset < total:
-                time.sleep(0.4)
+                time.sleep(1.0)
 
         releases = []
         for rg in all_rgs:
@@ -296,17 +305,6 @@ def artist_releases():
                 type_label = f"{primary} + {', '.join(secondary)}"
             else:
                 type_label = primary
-
-            # Get track count and format from first release if available
-            track_count = None
-            releases_list = rg.get('releases', [])
-            if releases_list:
-                # Use the earliest release's track count if available
-                for rel in releases_list:
-                    tc = rel.get('track-count')
-                    if tc:
-                        track_count = tc
-                        break
 
             date = rg.get('first-release-date', '')
             year = date[:4] if date else ''
@@ -319,8 +317,8 @@ def artist_releases():
                 'secondary_types': secondary,
                 'date': date,
                 'year': year,
-                'track_count': track_count,
-                'release_count': len(releases_list),
+                'track_count': None,
+                'release_count': rg.get('release-count', 0),
             })
 
         # Sort by date
