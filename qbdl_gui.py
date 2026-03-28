@@ -238,10 +238,10 @@ def artist_search():
         artist_matches = [
             {
                 'id': a['id'],
-                'name': a['name'],
-                'disambiguation': a.get('disambiguation', ''),
-                'country': a.get('country', ''),
-                'type': a.get('type', ''),
+                'name': a['name'] or '',
+                'disambiguation': a.get('disambiguation') or '',
+                'country': a.get('country') or '',
+                'type': a.get('type') or '',
             }
             for a in artists
         ]
