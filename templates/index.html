@@ -11,12 +11,12 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-<div class="container mt-5">
-    <h2 class="mb-4">QobuzDlGui-Reborn</h2>
+<div class="container mt-4">
+    <h2 class="mb-3">QobuzDlGui-Reborn</h2>
 
-    <!-- Settings section -->
+    <!-- Settings -->
     <div class="card settings-card mb-4">
-        <div class="card-header" id="settingsHeading">
+        <div class="card-header">
             <button class="btn btn-link settings-toggle" type="button" data-toggle="collapse" data-target="#settingsBody">
                 ⚙️ Settings
             </button>
@@ -54,34 +54,129 @@
         </div>
     </div>
 
-    <!-- URL input section -->
-    <div class="card mb-4">
-        <div class="card-body">
-            <label for="urlInput">Qobuz URLs <span class="text-muted small">(one per line)</span></label>
-            <textarea class="form-control url-textarea" id="urlInput" rows="6"
-                placeholder="https://www.qobuz.com/album/...&#10;https://www.qobuz.com/track/...&#10;https://www.qobuz.com/playlist/..."></textarea>
-            <div class="mt-3 d-flex align-items-center">
-                <button id="addToQueueBtn" class="btn btn-primary mr-3">▶ Add to Queue &amp; Download</button>
-                <button id="clearFinishedBtn" class="btn btn-outline-secondary btn-sm">🗑 Clear Finished</button>
-            </div>
-        </div>
-    </div>
+    <!-- Tabs -->
+    <ul class="nav nav-tabs mb-3" id="mainTabs">
+        <li class="nav-item">
+            <a class="nav-link active" id="tab-queue-link" data-toggle="tab" href="#tab-queue">▶ Download Queue</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" id="tab-artist-link" data-toggle="tab" href="#tab-artist">🎵 Artist Browser</a>
+        </li>
+    </ul>
 
-    <!-- Queue table -->
-    <div id="queueSection">
-        <h5 class="mb-3">Download Queue</h5>
-        <div id="emptyQueueMsg" class="text-muted mb-3">No items in queue.</div>
-        <table class="table table-dark table-sm queue-table" id="queueTable" style="display:none;">
-            <thead>
-                <tr>
-                    <th style="width:40px">#</th>
-                    <th>URL</th>
-                    <th style="width:160px">Status</th>
-                </tr>
-            </thead>
-            <tbody id="queueBody"></tbody>
-        </table>
-    </div>
+    <div class="tab-content">
+
+        <!-- ── Queue Tab ── -->
+        <div class="tab-pane fade show active" id="tab-queue">
+            <div class="card mb-4">
+                <div class="card-body">
+                    <label for="urlInput">Qobuz URLs <span class="text-muted small">(one per line)</span></label>
+                    <textarea class="form-control url-textarea" id="urlInput" rows="6"
+                        placeholder="https://www.qobuz.com/album/...&#10;https://www.qobuz.com/track/..."></textarea>
+                    <div class="mt-3 d-flex align-items-center">
+                        <button id="addToQueueBtn" class="btn btn-primary mr-3">▶ Add to Queue &amp; Download</button>
+                        <button id="clearFinishedBtn" class="btn btn-outline-secondary btn-sm">🗑 Clear Finished</button>
+                    </div>
+                </div>
+            </div>
+
+            <h5 class="mb-2">Download Queue</h5>
+            <div id="emptyQueueMsg" class="text-muted mb-3">No items in queue.</div>
+            <table class="table table-dark table-sm queue-table" id="queueTable" style="display:none;">
+                <thead>
+                    <tr>
+                        <th style="width:40px">#</th>
+                        <th>URL</th>
+                        <th style="width:160px">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="queueBody"></tbody>
+            </table>
+        </div>
+
+        <!-- ── Artist Browser Tab ── -->
+        <div class="tab-pane fade" id="tab-artist">
+            <!-- Artist search -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <label for="artistSearchInput">Search Artist</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="artistSearchInput" placeholder="e.g. Radiohead, Kate Bush…">
+                        <div class="input-group-append">
+                            <button class="btn btn-primary" id="artistSearchBtn">🔍 Search</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Artist disambiguation -->
+            <div id="artistMatches" style="display:none;" class="mb-3">
+                <h6 class="text-muted">Select artist:</h6>
+                <div id="artistMatchList" class="d-flex flex-wrap gap-2"></div>
+            </div>
+
+            <!-- Filters -->
+            <div id="filtersCard" style="display:none;" class="card mb-3">
+                <div class="card-body py-2">
+                    <div class="form-row align-items-end">
+                        <div class="form-group col-md-3 mb-2">
+                            <label class="small mb-1">Type</label>
+                            <select class="form-control form-control-sm" id="filterType">
+                                <option value="">All types</option>
+                            </select>
+                        </div>
+                        <div class="form-group col-md-2 mb-2">
+                            <label class="small mb-1">From year</label>
+                            <input type="number" class="form-control form-control-sm" id="filterYearFrom" placeholder="1960">
+                        </div>
+                        <div class="form-group col-md-2 mb-2">
+                            <label class="small mb-1">To year</label>
+                            <input type="number" class="form-control form-control-sm" id="filterYearTo" placeholder="2025">
+                        </div>
+                        <div class="form-group col-md-2 mb-2">
+                            <label class="small mb-1">Min tracks</label>
+                            <input type="number" class="form-control form-control-sm" id="filterMinTracks" placeholder="1">
+                        </div>
+                        <div class="col-md-3 mb-2 d-flex align-items-end">
+                            <button class="btn btn-outline-secondary btn-sm mr-2" id="clearFiltersBtn">✕ Clear</button>
+                            <span id="filteredCount" class="text-muted small ml-1"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Release table -->
+            <div id="releasesSection" style="display:none;">
+                <div class="d-flex align-items-center mb-2">
+                    <div class="custom-control custom-checkbox mr-3">
+                        <input type="checkbox" class="custom-control-input" id="selectAllVisible">
+                        <label class="custom-control-label small" for="selectAllVisible">Select all visible</label>
+                    </div>
+                    <button class="btn btn-primary btn-sm" id="addSelectedBtn" disabled>
+                        ▶ Add Selected to Queue (<span id="selectedCount">0</span>)
+                    </button>
+                    <span id="artistLoadingMsg" class="ml-3 text-muted small"></span>
+                </div>
+
+                <table class="table table-dark table-sm release-table" id="releaseTable">
+                    <thead>
+                        <tr>
+                            <th style="width:36px"></th>
+                            <th class="sortable" data-col="title">Title <span class="sort-icon">↕</span></th>
+                            <th class="sortable" data-col="type" style="width:160px">Type <span class="sort-icon">↕</span></th>
+                            <th class="sortable" data-col="date" style="width:80px">Year <span class="sort-icon">↕</span></th>
+                            <th class="sortable" data-col="track_count" style="width:80px">Tracks <span class="sort-icon">↕</span></th>
+                            <th style="width:80px">Releases</th>
+                        </tr>
+                    </thead>
+                    <tbody id="releaseBody"></tbody>
+                </table>
+            </div>
+
+            <div id="artistEmptyMsg" class="text-muted" style="display:none;">No releases found for this artist.</div>
+        </div>
+
+    </div><!-- /tab-content -->
 
     <div class="footer mt-4">
         <p>QoBuzDlGui-Reborn &copy; Gyarbij, LilKidSuave &amp; danieljcroberts 2023–2025</p>
@@ -89,60 +184,35 @@
 </div>
 
 <script>
+// ── WebSocket queue ──────────────────────────────────────────────────────────
 const socket = io();
-
-socket.on('queue_update', function(data) {
-    renderQueue(data.queue);
-});
-
-// Fetch current queue on page load
-fetch('/queue_state').then(r => r.json()).then(data => renderQueue(data.queue));
+socket.on('queue_update', d => renderQueue(d.queue));
+fetch('/queue_state').then(r => r.json()).then(d => renderQueue(d.queue));
 
 function statusBadge(item) {
-    if (item.status === 'queued') {
-        return `<span class="badge badge-secondary">⏳ Queue #${item.position}</span>`;
-    } else if (item.status === 'downloading') {
-        return `<span class="badge badge-primary anim-pulse">⬇ Downloading…</span>`;
-    } else if (item.status === 'downloaded') {
-        return `<span class="badge badge-success">✓ Done</span>`;
-    } else if (item.status === 'failed') {
-        return `<span class="badge badge-danger">✗ Failed</span>`;
-    }
+    if (item.status === 'queued')      return `<span class="badge badge-secondary">⏳ Queue #${item.position}</span>`;
+    if (item.status === 'downloading') return `<span class="badge badge-primary anim-pulse">⬇ Downloading…</span>`;
+    if (item.status === 'downloaded')  return `<span class="badge badge-success">✓ Done</span>`;
+    if (item.status === 'failed')      return `<span class="badge badge-danger">✗ Failed</span>`;
     return `<span class="badge badge-light">${item.status}</span>`;
 }
 
 function renderQueue(queue) {
-    const body = document.getElementById('queueBody');
+    const body  = document.getElementById('queueBody');
     const table = document.getElementById('queueTable');
     const empty = document.getElementById('emptyQueueMsg');
-
-    if (!queue || queue.length === 0) {
-        table.style.display = 'none';
-        empty.style.display = '';
-        return;
-    }
-
-    table.style.display = '';
-    empty.style.display = 'none';
-
+    if (!queue || !queue.length) { table.style.display='none'; empty.style.display=''; return; }
+    table.style.display=''; empty.style.display='none';
     body.innerHTML = '';
-    queue.forEach(function(item, idx) {
+    queue.forEach((item, idx) => {
         const tr = document.createElement('tr');
-        tr.className = item.status === 'downloading' ? 'row-downloading' :
-                       item.status === 'downloaded'  ? 'row-done' :
-                       item.status === 'failed'      ? 'row-failed' : '';
-        tr.innerHTML = `
-            <td class="text-muted">${idx + 1}</td>
-            <td class="url-cell" title="${escHtml(item.url)}">${escHtml(item.url)}</td>
-            <td>${statusBadge(item)}</td>
-        `;
+        tr.className = item.status==='downloading' ? 'row-downloading' : item.status==='downloaded' ? 'row-done' : item.status==='failed' ? 'row-failed' : '';
+        tr.innerHTML = `<td class="text-muted">${idx+1}</td><td class="url-cell" title="${esc(item.url)}">${esc(item.url)}</td><td>${statusBadge(item)}</td>`;
         body.appendChild(tr);
     });
 }
 
-function escHtml(s) {
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function getFormData() {
     return {
@@ -153,53 +223,256 @@ function getFormData() {
     };
 }
 
-document.getElementById('addToQueueBtn').addEventListener('click', function() {
-    const raw = document.getElementById('urlInput').value;
-    const urls = raw.split('\n').map(u => u.trim()).filter(u => u.length > 0);
-    if (urls.length === 0) {
-        alert('Please enter at least one URL.');
-        return;
-    }
-    const payload = Object.assign({}, getFormData(), { urls: urls });
-
-    fetch('/add_urls', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    }).then(r => r.json()).then(data => {
-        if (data.status === 'ok') {
-            document.getElementById('urlInput').value = '';
-        } else {
-            alert('Error: ' + (data.message || 'Unknown error'));
-        }
-    }).catch(e => alert('Request failed: ' + e));
+document.getElementById('addToQueueBtn').addEventListener('click', () => {
+    const urls = document.getElementById('urlInput').value.split('\n').map(u=>u.trim()).filter(Boolean);
+    if (!urls.length) { alert('Please enter at least one URL.'); return; }
+    fetch('/add_urls', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...getFormData(), urls}) })
+        .then(r=>r.json()).then(d => { if (d.status==='ok') document.getElementById('urlInput').value=''; else alert('Error: '+d.message); });
 });
 
-document.getElementById('clearFinishedBtn').addEventListener('click', function() {
-    fetch('/clear_finished', { method: 'POST' })
-        .then(r => r.json())
-        .then(() => {});
+document.getElementById('clearFinishedBtn').addEventListener('click', () => {
+    fetch('/clear_finished', {method:'POST'}).then(r=>r.json());
 });
 
 document.getElementById('saveSettingsBtn').addEventListener('click', function() {
-    const btn = this;
-    const status = document.getElementById('saveStatus');
+    const btn = this, st = document.getElementById('saveStatus');
     btn.disabled = true;
-    fetch('/save_settings', {
+    fetch('/save_settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(getFormData())})
+        .then(r=>r.json()).then(() => {
+            st.textContent='✓ Saved'; st.className='ml-3 save-status text-success'; btn.disabled=false;
+            setTimeout(()=>{ st.textContent=''; }, 3000);
+        }).catch(() => { st.textContent='✗ Failed'; st.className='ml-3 save-status text-danger'; btn.disabled=false; });
+});
+
+// ── Artist Browser ───────────────────────────────────────────────────────────
+let allReleases = [];   // full unfiltered list
+let filteredReleases = []; // after filters applied
+let sortCol = 'date', sortDir = 1;
+let selectedIds = new Set();
+
+// Search
+document.getElementById('artistSearchBtn').addEventListener('click', doArtistSearch);
+document.getElementById('artistSearchInput').addEventListener('keydown', e => { if (e.key==='Enter') doArtistSearch(); });
+
+function doArtistSearch() {
+    const q = document.getElementById('artistSearchInput').value.trim();
+    if (!q) return;
+    setArtistLoading('Searching…');
+    hideReleases();
+    document.getElementById('artistMatches').style.display = 'none';
+
+    fetch('/artist_search?q=' + encodeURIComponent(q))
+        .then(r => r.json())
+        .then(data => {
+            setArtistLoading('');
+            if (data.error) { alert('Error: ' + data.error); return; }
+            showArtistMatches(data.artists);
+        })
+        .catch(e => { setArtistLoading(''); alert('Request failed: ' + e); });
+}
+
+function showArtistMatches(artists) {
+    const list = document.getElementById('artistMatchList');
+    list.innerHTML = '';
+    artists.forEach(a => {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-outline-secondary btn-sm mr-2 mb-2 artist-match-btn';
+        const sub = [a.disambiguation, a.country, a.type].filter(Boolean).join(' · ');
+        btn.innerHTML = `<strong>${esc(a.name)}</strong>${sub ? `<br><small class="text-muted">${esc(sub)}</small>` : ''}`;
+        btn.addEventListener('click', () => loadArtistReleases(a.id, a.name));
+        list.appendChild(btn);
+    });
+    document.getElementById('artistMatches').style.display = 'block';
+    // Auto-select if only one result
+    if (artists.length === 1) loadArtistReleases(artists[0].id, artists[0].name);
+}
+
+function loadArtistReleases(mbid, name) {
+    document.getElementById('artistMatches').style.display = 'none';
+    hideReleases();
+    setArtistLoading(`Loading releases for ${name}…`);
+    selectedIds.clear();
+    updateSelectedCount();
+
+    fetch('/artist_releases?mbid=' + encodeURIComponent(mbid))
+        .then(r => r.json())
+        .then(data => {
+            setArtistLoading('');
+            if (data.error) { alert('Error: ' + data.error); return; }
+            allReleases = data.releases;
+            if (!allReleases.length) {
+                document.getElementById('artistEmptyMsg').style.display = '';
+                return;
+            }
+            buildTypeFilter();
+            applyFilters();
+            document.getElementById('filtersCard').style.display = '';
+            document.getElementById('releasesSection').style.display = '';
+        })
+        .catch(e => { setArtistLoading(''); alert('Request failed: ' + e); });
+}
+
+function buildTypeFilter() {
+    const types = [...new Set(allReleases.map(r => r.type))].sort();
+    const sel = document.getElementById('filterType');
+    sel.innerHTML = '<option value="">All types</option>';
+    types.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; sel.appendChild(o); });
+}
+
+function applyFilters() {
+    const type      = document.getElementById('filterType').value;
+    const yearFrom  = parseInt(document.getElementById('filterYearFrom').value) || 0;
+    const yearTo    = parseInt(document.getElementById('filterYearTo').value) || 9999;
+    const minTracks = parseInt(document.getElementById('filterMinTracks').value) || 0;
+
+    filteredReleases = allReleases.filter(r => {
+        if (type && r.type !== type) return false;
+        const y = parseInt(r.year) || 0;
+        if (yearFrom && y && y < yearFrom) return false;
+        if (yearTo < 9999 && y && y > yearTo) return false;
+        if (minTracks && r.track_count !== null && r.track_count < minTracks) return false;
+        return true;
+    });
+
+    sortReleases();
+    renderReleases();
+    document.getElementById('filteredCount').textContent = `${filteredReleases.length} of ${allReleases.length} releases`;
+    const visibleIds = new Set(filteredReleases.map(r => r.id));
+    for (const id of [...selectedIds]) { if (!visibleIds.has(id)) selectedIds.delete(id); }
+    updateSelectedCount();
+}
+
+['filterType','filterYearFrom','filterYearTo','filterMinTracks'].forEach(id => {
+    document.getElementById(id).addEventListener('input', applyFilters);
+});
+
+document.getElementById('clearFiltersBtn').addEventListener('click', () => {
+    document.getElementById('filterType').value = '';
+    document.getElementById('filterYearFrom').value = '';
+    document.getElementById('filterYearTo').value = '';
+    document.getElementById('filterMinTracks').value = '';
+    applyFilters();
+});
+
+function sortReleases() {
+    filteredReleases.sort((a, b) => {
+        let va = a[sortCol], vb = b[sortCol];
+        if (sortCol === 'track_count') { va = va ?? -1; vb = vb ?? -1; }
+        if (va === null || va === undefined) va = '';
+        if (vb === null || vb === undefined) vb = '';
+        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * sortDir;
+        return String(va).localeCompare(String(vb)) * sortDir;
+    });
+}
+
+document.getElementById('releaseTable').addEventListener('click', e => {
+    const th = e.target.closest('th.sortable');
+    if (!th) return;
+    const col = th.dataset.col;
+    if (sortCol === col) { sortDir *= -1; } else { sortCol = col; sortDir = 1; }
+    document.querySelectorAll('th.sortable .sort-icon').forEach(el => el.textContent = '↕');
+    th.querySelector('.sort-icon').textContent = sortDir === 1 ? '↑' : '↓';
+    sortReleases();
+    renderReleases();
+});
+
+function typeColor(primary) {
+    const map = { 'Album': 'badge-success', 'Single': 'badge-secondary', 'EP': 'badge-info', 'Broadcast': 'badge-warning', 'Other': 'badge-dark' };
+    return map[primary] || 'badge-secondary';
+}
+
+function renderReleases() {
+    const body = document.getElementById('releaseBody');
+    body.innerHTML = '';
+    filteredReleases.forEach(r => {
+        const checked = selectedIds.has(r.id) ? 'checked' : '';
+        const tracks = r.track_count !== null ? r.track_count : '—';
+        const tr = document.createElement('tr');
+        tr.className = selectedIds.has(r.id) ? 'row-selected' : '';
+        tr.innerHTML = `
+            <td><input type="checkbox" class="release-checkbox" data-id="${r.id}" ${checked}></td>
+            <td class="release-title">${esc(r.title)}</td>
+            <td><span class="badge ${typeColor(r.primary_type)} type-badge">${esc(r.type)}</span></td>
+            <td class="text-muted">${r.year || '—'}</td>
+            <td class="text-muted">${tracks}</td>
+            <td class="text-muted">${r.release_count}</td>`;
+        body.appendChild(tr);
+    });
+
+    body.querySelectorAll('.release-checkbox').forEach(cb => {
+        cb.addEventListener('change', function() {
+            if (this.checked) selectedIds.add(this.dataset.id);
+            else selectedIds.delete(this.dataset.id);
+            this.closest('tr').className = this.checked ? 'row-selected' : '';
+            updateSelectedCount();
+            syncSelectAll();
+        });
+    });
+
+    syncSelectAll();
+}
+
+function syncSelectAll() {
+    const all = document.querySelectorAll('.release-checkbox');
+    const checked = [...all].filter(c => c.checked).length;
+    const sa = document.getElementById('selectAllVisible');
+    sa.indeterminate = checked > 0 && checked < all.length;
+    sa.checked = all.length > 0 && checked === all.length;
+}
+
+document.getElementById('selectAllVisible').addEventListener('change', function() {
+    filteredReleases.forEach(r => {
+        if (this.checked) selectedIds.add(r.id);
+        else selectedIds.delete(r.id);
+    });
+    renderReleases();
+    updateSelectedCount();
+});
+
+function updateSelectedCount() {
+    document.getElementById('selectedCount').textContent = selectedIds.size;
+    document.getElementById('addSelectedBtn').disabled = selectedIds.size === 0;
+}
+
+document.getElementById('addSelectedBtn').addEventListener('click', () => {
+    const selected = allReleases.filter(r => selectedIds.has(r.id));
+    if (!selected.length) return;
+
+    const urls = selected.map(r => {
+        const q = encodeURIComponent(`${document.getElementById('artistSearchInput').value.trim()} ${r.title}`);
+        return `https://www.qobuz.com/gb-en/search/albums/${q}`;
+    });
+
+    const formData = getFormData();
+    fetch('/add_urls', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(getFormData())
-    }).then(r => r.json()).then(data => {
-        status.textContent = '✓ Saved';
-        status.className = 'ml-3 save-status text-success';
-        btn.disabled = false;
-        setTimeout(() => { status.textContent = ''; }, 3000);
-    }).catch(e => {
-        status.textContent = '✗ Failed';
-        status.className = 'ml-3 save-status text-danger';
-        btn.disabled = false;
+        body: JSON.stringify({...formData, urls})
+    }).then(r => r.json()).then(d => {
+        if (d.status === 'ok') {
+            document.getElementById('tab-queue-link').click();
+            selectedIds.clear();
+            renderReleases();
+            updateSelectedCount();
+        } else {
+            alert('Error: ' + d.message);
+        }
     });
 });
+
+function setArtistLoading(msg) {
+    document.getElementById('artistLoadingMsg').textContent = msg;
+}
+
+function hideReleases() {
+    document.getElementById('releasesSection').style.display = 'none';
+    document.getElementById('artistEmptyMsg').style.display = 'none';
+    document.getElementById('filtersCard').style.display = 'none';
+    allReleases = [];
+    filteredReleases = [];
+    selectedIds.clear();
+    updateSelectedCount();
+}
 </script>
 </body>
 </html>
