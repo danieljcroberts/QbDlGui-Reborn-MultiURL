@@ -113,11 +113,13 @@ class Download:
                 pass
         media_numbers = [track["media_number"] for track in meta["tracks"]["items"]]
         is_multiple = True if len([*{*media_numbers}]) > 1 else False
+        total_tracks = len(meta["tracks"]["items"])
+        successful_tracks = 0
         for i in meta["tracks"]["items"]:
             parse = self.client.get_track_url(i["id"], fmt_id=self.quality)
             if "sample" not in parse and parse["sampling_rate"]:
                 is_mp3 = True if int(self.quality) == 5 else False
-                self._download_and_tag(
+                ok = self._download_and_tag(
                     dirn,
                     count,
                     parse,
@@ -127,10 +129,19 @@ class Download:
                     is_mp3,
                     i["media_number"] if is_multiple else None,
                 )
+                if ok:
+                    successful_tracks += 1
             else:
                 logger.info(f"{OFF}Demo. Skipping")
+                total_tracks -= 1  # demos don't count toward expected total
             count = count + 1
-        logger.info(f"{GREEN}Completed")
+        if successful_tracks == total_tracks:
+            logger.info(f"{GREEN}Done")
+        else:
+            logger.info(
+                f"{YELLOW}Partially done "
+                f"({successful_tracks}/{total_tracks} tracks)"
+            )
 
     def download_track(self):
         parse = self.client.get_track_url(self.item_id, self.quality)
@@ -200,7 +211,7 @@ class Download:
             url = track_url_dict["url"]
         except KeyError:
             logger.info(f"{OFF}Track not available for download")
-            return
+            return False
 
         if multiple:
             root_dir = os.path.join(root_dir, f"Disc {multiple}")
@@ -220,7 +231,7 @@ class Download:
 
         if os.path.isfile(final_file):
             logger.info(f"{OFF}{track_title} was already downloaded")
-            return
+            return True
 
         tqdm_download(url, filename, filename)
         tag_function = metadata.tag_mp3 if is_mp3 else metadata.tag_flac
@@ -236,6 +247,8 @@ class Download:
             )
         except Exception as e:
             logger.error(f"{RED}Error tagging the file: {e}", exc_info=True)
+            return False
+        return True
 
     @staticmethod
     def _get_filename_attr(artist, track_metadata, track_title):
