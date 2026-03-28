@@ -6,6 +6,8 @@ import os
 import json
 import threading
 import uuid
+import requests as req_lib
+import time
 
 logging.basicConfig(level=logging.INFO)
 
@@ -17,6 +19,7 @@ encryption_key = os.environ.get('ENCRYPTION_KEY') or Fernet.generate_key()
 fernet = Fernet(encryption_key)
 
 SETTINGS_FILE = os.environ.get('SETTINGS_FILE', '/config/settings.json')
+MB_UA = {'User-Agent': 'QobuzDlGui/2.0 (danieljcroberts@gmail.com)'}
 
 # In-memory queue: list of dicts {id, url, status, position}
 download_queue = []
@@ -209,6 +212,125 @@ def clear_finished():
         _recalc_positions()
     emit_queue_state()
     return jsonify(status='ok')
+
+
+@app.route('/artist_search')
+def artist_search():
+    """Search MusicBrainz for an artist and return their release groups with metadata."""
+    artist_name = request.args.get('q', '').strip()
+    if not artist_name:
+        return jsonify(error='No artist name provided'), 400
+
+    try:
+        # Step 1: find the artist MBID
+        r = req_lib.get(
+            'https://musicbrainz.org/ws/2/artist/',
+            params={'query': f'artist:{artist_name}', 'fmt': 'json', 'limit': 5},
+            headers=MB_UA,
+            timeout=10
+        )
+        r.raise_for_status()
+        artists = r.json().get('artists', [])
+        if not artists:
+            return jsonify(error='Artist not found'), 404
+
+        # Return top 5 artist matches for disambiguation
+        artist_matches = [
+            {
+                'id': a['id'],
+                'name': a['name'],
+                'disambiguation': a.get('disambiguation', ''),
+                'country': a.get('country', ''),
+                'type': a.get('type', ''),
+            }
+            for a in artists
+        ]
+        return jsonify(artists=artist_matches)
+
+    except Exception as e:
+        logging.error(f"Artist search error: {e}")
+        return jsonify(error=str(e)), 500
+
+
+@app.route('/artist_releases')
+def artist_releases():
+    """Fetch all release groups for a given MusicBrainz artist MBID."""
+    mbid = request.args.get('mbid', '').strip()
+    if not mbid:
+        return jsonify(error='No MBID provided'), 400
+
+    try:
+        all_rgs = []
+        offset, total = 0, 9999
+
+        while offset < total:
+            r = req_lib.get(
+                'https://musicbrainz.org/ws/2/release-group',
+                params={
+                    'artist': mbid,
+                    'fmt': 'json',
+                    'limit': 100,
+                    'offset': offset,
+                    'inc': 'releases',
+                },
+                headers=MB_UA,
+                timeout=10
+            )
+            r.raise_for_status()
+            data = r.json()
+            total = data.get('release-group-count', 0)
+            rgs = data.get('release-groups', [])
+            if not rgs:
+                break
+            all_rgs.extend(rgs)
+            offset += 100
+            if offset < total:
+                time.sleep(0.4)
+
+        releases = []
+        for rg in all_rgs:
+            # Build a clean type label
+            primary = rg.get('primary-type', 'Other')
+            secondary = rg.get('secondary-types', [])
+            if secondary:
+                type_label = f"{primary} + {', '.join(secondary)}"
+            else:
+                type_label = primary
+
+            # Get track count and format from first release if available
+            track_count = None
+            releases_list = rg.get('releases', [])
+            if releases_list:
+                # Use the earliest release's track count if available
+                for rel in releases_list:
+                    tc = rel.get('track-count')
+                    if tc:
+                        track_count = tc
+                        break
+
+            date = rg.get('first-release-date', '')
+            year = date[:4] if date else ''
+
+            releases.append({
+                'id': rg['id'],
+                'title': rg['title'],
+                'type': type_label,
+                'primary_type': primary,
+                'secondary_types': secondary,
+                'date': date,
+                'year': year,
+                'track_count': track_count,
+                'release_count': len(releases_list),
+            })
+
+        # Sort by date
+        releases.sort(key=lambda x: x['date'] or '9999')
+
+        return jsonify(releases=releases, total=len(releases))
+
+    except Exception as e:
+        logging.error(f"Artist releases error: {e}")
+        return jsonify(error=str(e)), 500
 
 
 if __name__ == "__main__":
