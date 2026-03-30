@@ -65,15 +65,26 @@
                     </div>
                 </div>
                 <hr class="mt-2 mb-3" style="border-color:#3d4147;">
-                <h6 class="mb-3" style="color:#90a0b7;">Spotify Integration <span class="text-muted small font-weight-normal">(fully optional — public playlists work without credentials)</span></h6>
+                <h6 class="mb-3" style="color:#90a0b7;">Spotify Integration <span class="text-muted small font-weight-normal">(add sp_dc cookie for reliable playlist access)</span></h6>
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <label for="spotify_sp_dc">
+                            Spotify <code>sp_dc</code> Cookie
+                            <span class="text-muted small font-weight-normal">
+                                — Open Spotify in browser → F12 → Application → Cookies → <code>open.spotify.com</code> → copy <code>sp_dc</code> value
+                            </span>
+                        </label>
+                        <input type="password" class="form-control" id="spotify_sp_dc" value="{{ spotify_sp_dc }}" placeholder="AQB3x... (paste your sp_dc cookie value)">
+                    </div>
+                </div>
                 <div class="form-row">
                     <div class="form-group col-md-6">
-                        <label for="spotify_client_id">Spotify Client ID <span class="text-muted small">(optional)</span></label>
-                        <input type="text" class="form-control" id="spotify_client_id" value="{{ spotify_client_id }}" placeholder="Leave blank to use guest access">
+                        <label for="spotify_client_id">Spotify Client ID <span class="text-muted small">(optional — developer app alternative)</span></label>
+                        <input type="text" class="form-control" id="spotify_client_id" value="{{ spotify_client_id }}" placeholder="From developer.spotify.com">
                     </div>
                     <div class="form-group col-md-6">
                         <label for="spotify_client_secret">Spotify Client Secret <span class="text-muted small">(optional)</span></label>
-                        <input type="password" class="form-control" id="spotify_client_secret" value="{{ spotify_client_secret }}" placeholder="Leave blank to use guest access">
+                        <input type="password" class="form-control" id="spotify_client_secret" value="{{ spotify_client_secret }}" placeholder="••••••••">
                     </div>
                 </div>
                 <button id="testNavidromeBtn" class="btn btn-outline-info btn-sm mb-3">🔗 Test Navidrome Connection</button>
@@ -349,6 +360,7 @@ function getFormData() {
         navidrome_url: document.getElementById('navidrome_url').value.trim(),
         navidrome_user: document.getElementById('navidrome_user').value.trim(),
         navidrome_password: document.getElementById('navidrome_password').value,
+        spotify_sp_dc: document.getElementById('spotify_sp_dc').value.trim(),
         spotify_client_id: document.getElementById('spotify_client_id').value.trim(),
         spotify_client_secret: document.getElementById('spotify_client_secret').value,
     };

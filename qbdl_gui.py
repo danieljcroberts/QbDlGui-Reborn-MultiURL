@@ -51,6 +51,8 @@ def load_settings():
                     data['navidrome_password'] = decrypt_password(data['navidrome_password'])
                 if 'spotify_client_secret' in data and data['spotify_client_secret']:
                     data['spotify_client_secret'] = decrypt_password(data['spotify_client_secret'])
+                if 'spotify_sp_dc' in data and data['spotify_sp_dc']:
+                    data['spotify_sp_dc'] = decrypt_password(data['spotify_sp_dc'])
                 return data
     except Exception as e:
         logging.warning(f"Could not load settings: {e}")
@@ -59,7 +61,7 @@ def load_settings():
 
 def save_settings(email, password, download_location, quality,
                   navidrome_url='', navidrome_user='', navidrome_password='',
-                  spotify_client_id='', spotify_client_secret=''):
+                  spotify_client_id='', spotify_client_secret='', spotify_sp_dc=''):
     try:
         os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
         data = {
@@ -72,6 +74,7 @@ def save_settings(email, password, download_location, quality,
             'navidrome_password': encrypt_password(navidrome_password) if navidrome_password else '',
             'spotify_client_id': spotify_client_id,
             'spotify_client_secret': encrypt_password(spotify_client_secret) if spotify_client_secret else '',
+            'spotify_sp_dc': encrypt_password(spotify_sp_dc) if spotify_sp_dc else '',
         }
         with open(SETTINGS_FILE, 'w') as f:
             json.dump(data, f)
@@ -239,7 +242,8 @@ def index():
                            navidrome_user=settings.get('navidrome_user', ''),
                            navidrome_password=settings.get('navidrome_password', ''),
                            spotify_client_id=settings.get('spotify_client_id', ''),
-                           spotify_client_secret=settings.get('spotify_client_secret', ''))
+                           spotify_client_secret=settings.get('spotify_client_secret', ''),
+                           spotify_sp_dc=settings.get('spotify_sp_dc', ''))
 
 
 @app.route('/test_navidrome', methods=['POST'])
@@ -287,6 +291,7 @@ def save_settings_route():
         data.get('navidrome_password', ''),
         data.get('spotify_client_id', ''),
         data.get('spotify_client_secret', ''),
+        data.get('spotify_sp_dc', ''),
     )
     return jsonify(status='ok')
 
@@ -552,6 +557,31 @@ _SPOTIFY_UA = (
 )
 
 
+def _get_spotify_spdc_token(sp_dc):
+    """
+    Exchange an sp_dc session cookie for an access token.
+    Works with any free or premium Spotify account — no developer app needed.
+    sp_dc is found in browser DevTools → Application → Cookies → open.spotify.com
+    """
+    r = req_lib.get(
+        'https://open.spotify.com/get_access_token',
+        params={'reason': 'transport', 'productType': 'web_player'},
+        headers={
+            'User-Agent': _SPOTIFY_UA,
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://open.spotify.com/',
+        },
+        cookies={'sp_dc': sp_dc},
+        timeout=10
+    )
+    r.raise_for_status()
+    data = r.json()
+    if data.get('isAnonymous'):
+        raise ValueError('sp_dc cookie is invalid or expired — please refresh it from your browser.')
+    return data['accessToken']
+
+
 def _get_spotify_client_token(client_id, client_secret):
     """OAuth client-credentials token (requires a Spotify developer app)."""
     credentials = base64.b64encode(f'{client_id}:{client_secret}'.encode()).decode()
@@ -714,54 +744,68 @@ def get_spotify_playlist():
     settings = load_settings()
     client_id = settings.get('spotify_client_id', '').strip()
     client_secret = settings.get('spotify_client_secret', '').strip()
+    sp_dc = settings.get('spotify_sp_dc', '').strip()
 
     match = re.search(r'playlist/([A-Za-z0-9]+)', playlist_url)
     if not match:
         return jsonify(error='Invalid Spotify playlist URL.'), 400
     playlist_id = match.group(1)
 
+    def _api_fetch(token):
+        headers = {'Authorization': f'Bearer {token}', 'User-Agent': _SPOTIFY_UA}
+        r = req_lib.get(
+            f'https://api.spotify.com/v1/playlists/{playlist_id}',
+            headers=headers,
+            params={'fields': 'name,images,tracks.total'},
+            timeout=10
+        )
+        r.raise_for_status()
+        pl = r.json()
+        name = pl.get('name', 'Unknown Playlist')
+        images = pl.get('images', [])
+        cover_url = images[0]['url'] if images else ''
+        tracks = []
+        offset = 0
+        while True:
+            tr = req_lib.get(
+                f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',
+                headers=headers,
+                params={'fields': 'items(track(id,name,artists,album(name))),next',
+                        'limit': 100, 'offset': offset},
+                timeout=15
+            )
+            tr.raise_for_status()
+            tr_data = tr.json()
+            for item in tr_data.get('items', []):
+                t = item.get('track')
+                if not t or not t.get('id'):
+                    continue
+                tracks.append({
+                    'id': t.get('id'),
+                    'name': t.get('name', ''),
+                    'artist': ', '.join(a['name'] for a in t.get('artists', [])),
+                    'album': t.get('album', {}).get('name', ''),
+                })
+            if not tr_data.get('next'):
+                break
+            offset += 100
+        return name, cover_url, tracks
+
     try:
-        # ── Path 1: OAuth client-credentials (optional, user-supplied) ──────
+        # ── Path 1: sp_dc session cookie (free account, most reliable) ──────
+        if sp_dc:
+            try:
+                token = _get_spotify_spdc_token(sp_dc)
+                name, cover_url, tracks = _api_fetch(token)
+                return jsonify(name=name, cover_url=cover_url, tracks=tracks, total=len(tracks))
+            except Exception as e:
+                logging.warning(f"Spotify sp_dc failed, trying next: {e}")
+
+        # ── Path 2: OAuth client-credentials (optional, user-supplied) ──────
         if client_id and client_secret:
             try:
                 token = _get_spotify_client_token(client_id, client_secret)
-                headers = {'Authorization': f'Bearer {token}', 'User-Agent': _SPOTIFY_UA}
-                r = req_lib.get(
-                    f'https://api.spotify.com/v1/playlists/{playlist_id}',
-                    headers=headers,
-                    params={'fields': 'name,images,tracks.total'},
-                    timeout=10
-                )
-                r.raise_for_status()
-                pl = r.json()
-                name = pl.get('name', 'Unknown Playlist')
-                images = pl.get('images', [])
-                cover_url = images[0]['url'] if images else ''
-                tracks = []
-                offset = 0
-                while True:
-                    tr = req_lib.get(
-                        f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',
-                        headers=headers,
-                        params={'fields': 'items(track(id,name,artists,album(name))),next',
-                                'limit': 100, 'offset': offset},
-                        timeout=15
-                    )
-                    tr.raise_for_status()
-                    tr_data = tr.json()
-                    for item in tr_data.get('items', []):
-                        t = item.get('track')
-                        if not t or not t.get('id'):
-                            continue
-                        tracks.append({
-                            'id': t.get('id'),
-                            'name': t.get('name', ''),
-                            'artist': ', '.join(a['name'] for a in t.get('artists', [])),
-                            'album': t.get('album', {}).get('name', ''),
-                        })
-                    if not tr_data.get('next'):
-                        break
-                    offset += 100
+                name, cover_url, tracks = _api_fetch(token)
                 return jsonify(name=name, cover_url=cover_url, tracks=tracks, total=len(tracks))
             except Exception as e:
                 logging.warning(f"Spotify API (client creds) failed, falling back to scrape: {e}")
