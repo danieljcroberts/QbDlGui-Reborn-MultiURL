@@ -545,16 +545,47 @@ def artist_releases():
         return jsonify(error=str(e)), 500
 
 
-def _get_spotify_token(client_id, client_secret):
+_SPOTIFY_UA = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/124.0.0.0 Safari/537.36'
+)
+
+
+def _get_spotify_client_token(client_id, client_secret):
+    """OAuth client-credentials token (requires a Spotify developer app)."""
     credentials = base64.b64encode(f'{client_id}:{client_secret}'.encode()).decode()
     r = req_lib.post(
         'https://accounts.spotify.com/api/token',
-        headers={'Authorization': f'Basic {credentials}', 'Content-Type': 'application/x-www-form-urlencoded'},
+        headers={'Authorization': f'Basic {credentials}',
+                 'Content-Type': 'application/x-www-form-urlencoded'},
         data={'grant_type': 'client_credentials'},
         timeout=10
     )
     r.raise_for_status()
     return r.json()['access_token']
+
+
+def _get_spotify_guest_token():
+    """Anonymous token from Spotify's web-player endpoint — no account needed."""
+    r = req_lib.get(
+        'https://open.spotify.com/get_access_token',
+        params={'reason': 'transport', 'productType': 'web-player'},
+        headers={'User-Agent': _SPOTIFY_UA},
+        timeout=10
+    )
+    r.raise_for_status()
+    return r.json()['accessToken']
+
+
+def _get_any_spotify_token(client_id='', client_secret=''):
+    """Try client-credentials first; fall back to the anonymous guest token."""
+    if client_id and client_secret:
+        try:
+            return _get_spotify_client_token(client_id, client_secret)
+        except Exception as e:
+            logging.warning(f"Spotify client-credentials failed, using guest token: {e}")
+    return _get_spotify_guest_token()
 
 
 @app.route('/get_spotify_playlist', methods=['POST'])
@@ -565,20 +596,18 @@ def get_spotify_playlist():
     client_id = settings.get('spotify_client_id', '').strip()
     client_secret = settings.get('spotify_client_secret', '').strip()
 
-    if not client_id or not client_secret:
-        return jsonify(error='Spotify credentials not configured in settings.'), 400
-
     match = re.search(r'playlist/([A-Za-z0-9]+)', playlist_url)
     if not match:
         return jsonify(error='Invalid Spotify playlist URL.'), 400
     playlist_id = match.group(1)
 
     try:
-        token = _get_spotify_token(client_id, client_secret)
+        token = _get_any_spotify_token(client_id, client_secret)
+        headers = {'Authorization': f'Bearer {token}', 'User-Agent': _SPOTIFY_UA}
 
         r = req_lib.get(
             f'https://api.spotify.com/v1/playlists/{playlist_id}',
-            headers={'Authorization': f'Bearer {token}'},
+            headers=headers,
             params={'fields': 'name,images,tracks.total'},
             timeout=10
         )
@@ -594,7 +623,7 @@ def get_spotify_playlist():
         while True:
             tr = req_lib.get(
                 f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',
-                headers={'Authorization': f'Bearer {token}'},
+                headers=headers,
                 params={
                     'fields': 'items(track(id,name,artists,album(name))),next',
                     'limit': 100,
