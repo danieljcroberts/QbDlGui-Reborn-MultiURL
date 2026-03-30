@@ -802,13 +802,19 @@ def get_spotify_playlist():
         return name, cover_url, tracks
 
     try:
-        # ── Path 1: sp_dc session cookie (free account, most reliable) ──────
+        # ── Path 1: token fetched client-side and passed in the request ──────
+        client_token = data.get('client_token', '').strip()
+        if client_token:
+            name, cover_url, tracks = _api_fetch(client_token)
+            return jsonify(name=name, cover_url=cover_url, tracks=tracks, total=len(tracks))
+
+        # ── Path 2: sp_dc session cookie (free account, most reliable) ──────
         if sp_dc:
             token = _get_spotify_spdc_token(sp_dc)  # raises on failure — shown to user
             name, cover_url, tracks = _api_fetch(token)
             return jsonify(name=name, cover_url=cover_url, tracks=tracks, total=len(tracks))
 
-        # ── Path 2: OAuth client-credentials (optional, user-supplied) ──────
+        # ── Path 3: OAuth client-credentials (optional, user-supplied) ──────
         if client_id and client_secret:
             try:
                 token = _get_spotify_client_token(client_id, client_secret)

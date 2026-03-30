@@ -748,7 +748,7 @@ let spotifySelectedIds = new Set();
 document.getElementById('spotifyLoadBtn').addEventListener('click', doSpotifyLoad);
 document.getElementById('spotifyUrlInput').addEventListener('keydown', e => { if (e.key === 'Enter') doSpotifyLoad(); });
 
-function doSpotifyLoad() {
+async function doSpotifyLoad() {
     const url = document.getElementById('spotifyUrlInput').value.trim();
     if (!url) return;
     setSpotifyStatus('Fetching playlist from Spotify…');
@@ -758,11 +758,34 @@ function doSpotifyLoad() {
     spotifyTracks = [];
     spotifySelectedIds.clear();
 
-    fetch('/get_spotify_playlist', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({playlist_url: url})
-    }).then(r => r.json()).then(data => {
+    // Try to fetch a Spotify token directly from the browser (uses the user's
+    // existing Spotify session cookies, bypassing server-IP blocks)
+    let clientToken = null;
+    try {
+        const tr = await fetch(
+            'https://open.spotify.com/get_access_token?reason=transport&productType=web_player',
+            {credentials: 'include'}
+        );
+        if (tr.ok) {
+            const td = await tr.json();
+            if (td.accessToken && !td.isAnonymous) {
+                clientToken = td.accessToken;
+            }
+        }
+    } catch (e) {
+        // CORS or network error — server will fall back to sp_dc / scrape
+    }
+
+    const payload = {playlist_url: url};
+    if (clientToken) payload.client_token = clientToken;
+
+    try {
+        const r = await fetch('/get_spotify_playlist', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await r.json();
         if (data.error) { setSpotifyStatus('✗ ' + data.error); return; }
         spotifyPlaylistName = data.name;
         spotifyCoverUrl = data.cover_url || '';
@@ -779,7 +802,9 @@ function doSpotifyLoad() {
         document.getElementById('spotifyPlaylistInfo').style.display = '';
         document.getElementById('spotifyMatchBtn').style.display = '';
         setSpotifyStatus(`Loaded ${data.total} tracks. Click "Match on Qobuz" to find them.`);
-    }).catch(e => setSpotifyStatus('✗ Request failed: ' + e));
+    } catch (e) {
+        setSpotifyStatus('✗ Request failed: ' + e);
+    }
 }
 
 document.getElementById('spotifyMatchBtn').addEventListener('click', doSpotifyMatch);
