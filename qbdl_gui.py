@@ -560,25 +560,35 @@ _SPOTIFY_UA = (
 def _get_spotify_spdc_token(sp_dc):
     """
     Exchange an sp_dc session cookie for an access token.
+    Uses a session to mimic a real browser: visits homepage first to collect
+    sp_t and other required cookies, then fetches the access token.
     Works with any free or premium Spotify account — no developer app needed.
-    sp_dc is found in browser DevTools → Application → Cookies → open.spotify.com
     """
-    r = req_lib.get(
+    session = req_lib.Session()
+    session.cookies.set('sp_dc', sp_dc, domain='open.spotify.com', path='/')
+
+    _hdrs = {
+        'User-Agent': _SPOTIFY_UA,
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://open.spotify.com/',
+    }
+
+    # Visit homepage to collect sp_t and other session cookies
+    try:
+        session.get('https://open.spotify.com/', headers=_hdrs, timeout=10)
+    except Exception:
+        pass
+
+    r = session.get(
         'https://open.spotify.com/get_access_token',
         params={'reason': 'transport', 'productType': 'web_player'},
-        headers={
-            'User-Agent': _SPOTIFY_UA,
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://open.spotify.com/',
-        },
-        cookies={'sp_dc': sp_dc},
+        headers={**_hdrs, 'Accept': 'application/json'},
         timeout=10
     )
     r.raise_for_status()
     data = r.json()
     if data.get('isAnonymous'):
-        raise ValueError('sp_dc cookie is invalid or expired — please refresh it from your browser.')
+        raise ValueError('sp_dc cookie is invalid or expired — please copy a fresh value from your browser.')
     return data['accessToken']
 
 
@@ -794,12 +804,9 @@ def get_spotify_playlist():
     try:
         # ── Path 1: sp_dc session cookie (free account, most reliable) ──────
         if sp_dc:
-            try:
-                token = _get_spotify_spdc_token(sp_dc)
-                name, cover_url, tracks = _api_fetch(token)
-                return jsonify(name=name, cover_url=cover_url, tracks=tracks, total=len(tracks))
-            except Exception as e:
-                logging.warning(f"Spotify sp_dc failed, trying next: {e}")
+            token = _get_spotify_spdc_token(sp_dc)  # raises on failure — shown to user
+            name, cover_url, tracks = _api_fetch(token)
+            return jsonify(name=name, cover_url=cover_url, tracks=tracks, total=len(tracks))
 
         # ── Path 2: OAuth client-credentials (optional, user-supplied) ──────
         if client_id and client_secret:
