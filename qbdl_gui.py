@@ -478,7 +478,7 @@ def artist_releases():
                 'secondary_types': secondary,
                 'date': date,
                 'year': year,
-                'track_count': track_count,
+                'track_count': None,
                 'release_count': rg.get('release-count', 0),
             })
 
