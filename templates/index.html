@@ -262,13 +262,42 @@
         <div class="tab-pane fade" id="tab-spotify">
             <div class="card mb-3">
                 <div class="card-body">
-                    <label for="spotifyUrlInput">Spotify Playlist URL</label>
-                    <div class="input-group">
-                        <input type="text" class="form-control" id="spotifyUrlInput"
-                            placeholder="https://open.spotify.com/playlist/…">
-                        <div class="input-group-append">
-                            <button class="btn btn-success" id="spotifyLoadBtn">🟢 Load Playlist</button>
+                    <!-- Tab switcher: URL vs CSV -->
+                    <ul class="nav nav-tabs mb-3" id="spotifyInputTabs">
+                        <li class="nav-item">
+                            <a class="nav-link active" id="spotifyUrlTab" href="#" onclick="showSpotifyUrlMode(event)">Spotify URL</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="spotifyCsvTab" href="#" onclick="showSpotifyCsvMode(event)">Import CSV <span class="badge badge-secondary" style="font-size:0.7em;">Exportify</span></a>
+                        </li>
+                    </ul>
+
+                    <!-- URL mode -->
+                    <div id="spotifyUrlMode">
+                        <label for="spotifyUrlInput">Spotify Playlist URL</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="spotifyUrlInput"
+                                placeholder="https://open.spotify.com/playlist/…">
+                            <div class="input-group-append">
+                                <button class="btn btn-success" id="spotifyLoadBtn">🟢 Load Playlist</button>
+                            </div>
                         </div>
+                    </div>
+
+                    <!-- CSV mode -->
+                    <div id="spotifyCsvMode" style="display:none;">
+                        <div class="text-muted small mb-2">
+                            Export your Spotify playlist via
+                            <strong>exportify.net</strong> → download CSV → import here.
+                            Works with any public or private playlist, no API key needed.
+                        </div>
+                        <label for="spotifyCsvName">Playlist Name <span class="text-muted small">(used as album name in tags)</span></label>
+                        <input type="text" class="form-control mb-2" id="spotifyCsvName" placeholder="My Playlist">
+                        <label for="spotifyCsvCover">Playlist Cover Image <span class="text-muted small">(optional JPG/PNG)</span></label>
+                        <input type="file" class="form-control-file mb-2" id="spotifyCsvCover" accept="image/*">
+                        <label for="spotifyCsvFile">Exportify CSV File</label>
+                        <input type="file" class="form-control-file mb-2" id="spotifyCsvFile" accept=".csv,text/csv">
+                        <button class="btn btn-success" id="spotifyCsvLoadBtn">📂 Import CSV</button>
                     </div>
                 </div>
             </div>
@@ -956,6 +985,148 @@ document.getElementById('spotifyAddQueueBtn').addEventListener('click', () => {
 
 function setSpotifyStatus(msg) {
     document.getElementById('spotifyStatus').textContent = msg;
+}
+
+// ── Spotify input mode switcher ───────────────────────────────────────────────
+function showSpotifyUrlMode(e) {
+    e.preventDefault();
+    document.getElementById('spotifyUrlMode').style.display = '';
+    document.getElementById('spotifyCsvMode').style.display = 'none';
+    document.getElementById('spotifyUrlTab').classList.add('active');
+    document.getElementById('spotifyCsvTab').classList.remove('active');
+}
+function showSpotifyCsvMode(e) {
+    e.preventDefault();
+    document.getElementById('spotifyUrlMode').style.display = 'none';
+    document.getElementById('spotifyCsvMode').style.display = '';
+    document.getElementById('spotifyUrlTab').classList.remove('active');
+    document.getElementById('spotifyCsvTab').classList.add('active');
+}
+
+// ── CSV import ────────────────────────────────────────────────────────────────
+document.getElementById('spotifyCsvLoadBtn').addEventListener('click', doSpotifyCsvLoad);
+
+async function doSpotifyCsvLoad() {
+    const nameEl = document.getElementById('spotifyCsvName');
+    const fileEl = document.getElementById('spotifyCsvFile');
+    const coverEl = document.getElementById('spotifyCsvCover');
+
+    const playlistName = nameEl.value.trim() || 'Imported Playlist';
+    const file = fileEl.files[0];
+    if (!file) { setSpotifyStatus('✗ Please select a CSV file.'); return; }
+
+    setSpotifyStatus('Parsing CSV…');
+    document.getElementById('spotifyPlaylistInfo').style.display = 'none';
+    document.getElementById('spotifyResultsSection').style.display = 'none';
+    document.getElementById('spotifyMatchBtn').style.display = 'none';
+    spotifyTracks = [];
+    spotifySelectedIds.clear();
+
+    // Read cover image if provided
+    let coverDataUrl = '';
+    if (coverEl.files[0]) {
+        coverDataUrl = await new Promise(res => {
+            const fr = new FileReader();
+            fr.onload = e => res(e.target.result);
+            fr.readAsDataURL(coverEl.files[0]);
+        });
+    }
+
+    // Read and parse CSV
+    const text = await file.text();
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) { setSpotifyStatus('✗ CSV appears empty.'); return; }
+
+    // Detect columns from header row (Exportify format)
+    const header = parseCsvRow(lines[0]).map(h => h.toLowerCase().trim());
+    const col = name => {
+        // Try common column name variants
+        const variants = {
+            'name':   ['track name', 'title', 'song name', 'name'],
+            'artist': ['artist name(s)', 'artist names', 'artist', 'artists'],
+            'album':  ['album name', 'album'],
+        };
+        for (const v of (variants[name] || [name])) {
+            const idx = header.indexOf(v);
+            if (idx !== -1) return idx;
+        }
+        return -1;
+    };
+
+    const nameIdx   = col('name');
+    const artistIdx = col('artist');
+    const albumIdx  = col('album');
+
+    if (nameIdx === -1) { setSpotifyStatus('✗ Could not find "Track Name" column in CSV.'); return; }
+
+    const parsed = [];
+    for (let i = 1; i < lines.length; i++) {
+        const row = parseCsvRow(lines[i]);
+        if (!row.length || !row[nameIdx]) continue;
+        parsed.push({
+            id: i,
+            name:   row[nameIdx]   || '',
+            artist: artistIdx  !== -1 ? row[artistIdx]  : '',
+            album:  albumIdx   !== -1 ? row[albumIdx]   : '',
+        });
+    }
+
+    if (!parsed.length) { setSpotifyStatus('✗ No tracks found in CSV.'); return; }
+
+    // Send to server to store playlist name/cover and get back the tracks
+    const payload = {
+        playlist_name: playlistName,
+        cover_data: coverDataUrl,
+        tracks: parsed
+    };
+
+    try {
+        const r = await fetch('/import_spotify_csv', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await r.json();
+        if (data.error) { setSpotifyStatus('✗ ' + data.error); return; }
+
+        spotifyPlaylistName = data.name;
+        spotifyCoverUrl = data.cover_url || '';
+        spotifyTracks = data.tracks.map(t => ({...t, found: null, qobuz_url: null, qobuz_title: null, qobuz_artist: null}));
+
+        document.getElementById('spotifyPlaylistName').textContent = data.name;
+        document.getElementById('spotifyTrackCount').textContent = `${data.total} tracks`;
+        if (data.cover_url) {
+            document.getElementById('spotifyCoverThumb').src = data.cover_url;
+            document.getElementById('spotifyCoverThumb').style.display = '';
+        } else {
+            document.getElementById('spotifyCoverThumb').style.display = 'none';
+        }
+        document.getElementById('spotifyPlaylistInfo').style.display = '';
+        document.getElementById('spotifyMatchBtn').style.display = '';
+        setSpotifyStatus(`Loaded ${data.total} tracks from CSV. Click "Match on Qobuz" to find them.`);
+    } catch (e) {
+        setSpotifyStatus('✗ Request failed: ' + e);
+    }
+}
+
+function parseCsvRow(line) {
+    // RFC 4180-compatible CSV parser
+    const result = [];
+    let cur = '', inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQuotes) {
+            if (ch === '"' && line[i+1] === '"') { cur += '"'; i++; }
+            else if (ch === '"') inQuotes = false;
+            else cur += ch;
+        } else {
+            if (ch === '"') inQuotes = true;
+            else if (ch === ',') { result.push(cur); cur = ''; }
+            else cur += ch;
+        }
+    }
+    result.push(cur);
+    return result;
 }
 </script>
 </body>

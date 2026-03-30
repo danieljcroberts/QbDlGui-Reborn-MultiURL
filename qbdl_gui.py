@@ -146,12 +146,19 @@ def _download_spotify_track(qobuz, item, download_location, quality):
     cover_path = os.path.join(playlist_dir, 'cover.jpg')
     if not os.path.exists(cover_path) and cover_url:
         try:
-            r = req_lib.get(cover_url, timeout=30)
-            r.raise_for_status()
-            with open(cover_path, 'wb') as f:
-                f.write(r.content)
+            if cover_url.startswith('data:'):
+                # Base64 data URI from CSV import
+                import base64 as _b64
+                _, encoded = cover_url.split(',', 1)
+                with open(cover_path, 'wb') as f:
+                    f.write(_b64.b64decode(encoded))
+            else:
+                r = req_lib.get(cover_url, timeout=30)
+                r.raise_for_status()
+                with open(cover_path, 'wb') as f:
+                    f.write(r.content)
         except Exception as e:
-            logging.warning(f"Failed to download Spotify cover: {e}")
+            logging.warning(f"Failed to save Spotify cover: {e}")
 
     dl = Download(
         client=qobuz.client,
@@ -864,6 +871,37 @@ def search_qobuz_tracks():
             results.append({'found': False})
 
     return jsonify(results=results)
+
+
+@app.route('/import_spotify_csv', methods=['POST'])
+def import_spotify_csv():
+    """Accept a pre-parsed CSV track list from the browser (e.g. Exportify export).
+    No Spotify API calls needed — the browser already parsed the file."""
+    data = request.get_json()
+    playlist_name = data.get('playlist_name', 'Imported Playlist').strip() or 'Imported Playlist'
+    cover_data = data.get('cover_data', '')   # base64 data URI or empty
+    raw_tracks = data.get('tracks', [])
+
+    if not raw_tracks:
+        return jsonify(error='No tracks found in CSV'), 400
+
+    tracks = [
+        {
+            'id': t.get('id', i),
+            'name': t.get('name', '').strip(),
+            'artist': t.get('artist', '').strip(),
+            'album': t.get('album', '').strip(),
+        }
+        for i, t in enumerate(raw_tracks)
+        if t.get('name', '').strip()
+    ]
+
+    return jsonify(
+        name=playlist_name,
+        cover_url=cover_data,   # data URI passed straight through; download code handles it
+        tracks=tracks,
+        total=len(tracks)
+    )
 
 
 @app.route('/add_spotify_to_queue', methods=['POST'])
