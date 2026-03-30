@@ -566,26 +566,92 @@ def _get_spotify_client_token(client_id, client_secret):
     return r.json()['access_token']
 
 
-def _get_spotify_guest_token():
-    """Anonymous token from Spotify's web-player endpoint — no account needed."""
+def _scrape_spotify_playlist(playlist_id):
+    """
+    Fetch playlist data by parsing Spotify's server-rendered page.
+    No token or account required. Works for any public playlist.
+    Returns (name, cover_url, tracks_list).
+    """
+    from bs4 import BeautifulSoup
+    import json as json_lib
+
+    url = f'https://open.spotify.com/playlist/{playlist_id}'
     r = req_lib.get(
-        'https://open.spotify.com/get_access_token',
-        params={'reason': 'transport', 'productType': 'web-player'},
-        headers={'User-Agent': _SPOTIFY_UA},
-        timeout=10
+        url,
+        headers={
+            'User-Agent': _SPOTIFY_UA,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        },
+        timeout=15
     )
     r.raise_for_status()
-    return r.json()['accessToken']
 
+    soup = BeautifulSoup(r.text, 'html.parser')
 
-def _get_any_spotify_token(client_id='', client_secret=''):
-    """Try client-credentials first; fall back to the anonymous guest token."""
-    if client_id and client_secret:
-        try:
-            return _get_spotify_client_token(client_id, client_secret)
-        except Exception as e:
-            logging.warning(f"Spotify client-credentials failed, using guest token: {e}")
-    return _get_spotify_guest_token()
+    # Fallback values from OG meta tags
+    og_title = soup.find('meta', attrs={'property': 'og:title'})
+    name = og_title['content'].split(' - playlist')[0].strip() if og_title else 'Unknown Playlist'
+    og_image = soup.find('meta', attrs={'property': 'og:image'})
+    cover_url = og_image['content'] if og_image else ''
+
+    script = soup.find('script', {'id': '__NEXT_DATA__'})
+    if not script:
+        raise ValueError(
+            'Spotify page did not return track data. '
+            'The playlist may be private or unavailable.'
+        )
+
+    apollo = json_lib.loads(script.string).get('props', {}).get('pageProps', {}).get('apolloState') or {}
+
+    # Pull better name / cover from the Playlist entity
+    for val in apollo.values():
+        if isinstance(val, dict) and val.get('__typename') == 'Playlist':
+            name = val.get('name', name)
+            imgs = val.get('images', {})
+            if isinstance(imgs, dict):
+                img_items = imgs.get('items', [])
+                if img_items and isinstance(img_items[0], dict):
+                    sources = img_items[0].get('sources', [])
+                    if sources:
+                        cover_url = sources[0].get('url', cover_url)
+            break
+
+    # Resolve every PlaylistTrack → Track entity
+    tracks = []
+    for val in apollo.values():
+        if not isinstance(val, dict) or val.get('__typename') != 'PlaylistTrack':
+            continue
+        item_v2 = val.get('itemV2', {})
+        track_ref = item_v2.get('__ref') if isinstance(item_v2, dict) else None
+        if not track_ref:
+            continue
+        track = apollo.get(track_ref, {})
+        if not isinstance(track, dict) or track.get('__typename') != 'Track':
+            continue
+
+        track_name = track.get('name', '')
+        if not track_name:
+            continue
+
+        artist_names = []
+        for a_item in (track.get('artists') or {}).get('items', []):
+            if not isinstance(a_item, dict):
+                continue
+            a_entity = apollo.get(a_item.get('__ref', ''), {})
+            if isinstance(a_entity, dict):
+                n = (a_entity.get('profile') or {}).get('name', '')
+                if n:
+                    artist_names.append(n)
+
+        tracks.append({
+            'id': track.get('id', ''),
+            'name': track_name,
+            'artist': ', '.join(artist_names),
+            'album': '',
+        })
+
+    return name, cover_url, tracks
 
 
 @app.route('/get_spotify_playlist', methods=['POST'])
@@ -602,51 +668,53 @@ def get_spotify_playlist():
     playlist_id = match.group(1)
 
     try:
-        token = _get_any_spotify_token(client_id, client_secret)
-        headers = {'Authorization': f'Bearer {token}', 'User-Agent': _SPOTIFY_UA}
+        # ── Path 1: OAuth client-credentials (optional, user-supplied) ──────
+        if client_id and client_secret:
+            try:
+                token = _get_spotify_client_token(client_id, client_secret)
+                headers = {'Authorization': f'Bearer {token}', 'User-Agent': _SPOTIFY_UA}
+                r = req_lib.get(
+                    f'https://api.spotify.com/v1/playlists/{playlist_id}',
+                    headers=headers,
+                    params={'fields': 'name,images,tracks.total'},
+                    timeout=10
+                )
+                r.raise_for_status()
+                pl = r.json()
+                name = pl.get('name', 'Unknown Playlist')
+                images = pl.get('images', [])
+                cover_url = images[0]['url'] if images else ''
+                tracks = []
+                offset = 0
+                while True:
+                    tr = req_lib.get(
+                        f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',
+                        headers=headers,
+                        params={'fields': 'items(track(id,name,artists,album(name))),next',
+                                'limit': 100, 'offset': offset},
+                        timeout=15
+                    )
+                    tr.raise_for_status()
+                    tr_data = tr.json()
+                    for item in tr_data.get('items', []):
+                        t = item.get('track')
+                        if not t or not t.get('id'):
+                            continue
+                        tracks.append({
+                            'id': t.get('id'),
+                            'name': t.get('name', ''),
+                            'artist': ', '.join(a['name'] for a in t.get('artists', [])),
+                            'album': t.get('album', {}).get('name', ''),
+                        })
+                    if not tr_data.get('next'):
+                        break
+                    offset += 100
+                return jsonify(name=name, cover_url=cover_url, tracks=tracks, total=len(tracks))
+            except Exception as e:
+                logging.warning(f"Spotify API (client creds) failed, falling back to scrape: {e}")
 
-        r = req_lib.get(
-            f'https://api.spotify.com/v1/playlists/{playlist_id}',
-            headers=headers,
-            params={'fields': 'name,images,tracks.total'},
-            timeout=10
-        )
-        r.raise_for_status()
-        playlist = r.json()
-
-        name = playlist.get('name', 'Unknown Playlist')
-        images = playlist.get('images', [])
-        cover_url = images[0]['url'] if images else ''
-
-        tracks = []
-        offset = 0
-        while True:
-            tr = req_lib.get(
-                f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',
-                headers=headers,
-                params={
-                    'fields': 'items(track(id,name,artists,album(name))),next',
-                    'limit': 100,
-                    'offset': offset,
-                },
-                timeout=15
-            )
-            tr.raise_for_status()
-            tr_data = tr.json()
-            for item in tr_data.get('items', []):
-                t = item.get('track')
-                if not t or not t.get('id'):
-                    continue
-                tracks.append({
-                    'id': t.get('id'),
-                    'name': t.get('name', ''),
-                    'artist': ', '.join(a['name'] for a in t.get('artists', [])),
-                    'album': t.get('album', {}).get('name', ''),
-                })
-            if not tr_data.get('next'):
-                break
-            offset += 100
-
+        # ── Path 2: Scrape the server-rendered page (no account needed) ─────
+        name, cover_url, tracks = _scrape_spotify_playlist(playlist_id)
         return jsonify(name=name, cover_url=cover_url, tracks=tracks, total=len(tracks))
 
     except Exception as e:
