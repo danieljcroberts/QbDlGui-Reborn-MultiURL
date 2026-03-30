@@ -209,10 +209,16 @@ def test_navidrome():
         )
         if r.status_code == 200 and r.json().get('token'):
             return jsonify(status='ok', message='Connected to Navidrome successfully.')
+        elif r.status_code == 401:
+            return jsonify(status='error', message='Wrong username or password — please check your Navidrome credentials.')
+        elif r.status_code == 404:
+            return jsonify(status='error', message='Navidrome not found at that URL — check the address and port.')
         else:
-            return jsonify(status='error', message=f'Authentication failed (HTTP {r.status_code}).')
+            return jsonify(status='error', message=f'Unexpected response from Navidrome (HTTP {r.status_code}).')
     except req_lib.exceptions.ConnectionError:
-        return jsonify(status='error', message='Could not reach Navidrome — check the URL.')
+        return jsonify(status='error', message='Could not reach Navidrome — check the URL and make sure it is running.')
+    except req_lib.exceptions.Timeout:
+        return jsonify(status='error', message='Connection timed out — Navidrome may be unreachable from this container.')
     except Exception as e:
         return jsonify(status='error', message=str(e))
 
