@@ -45,13 +45,16 @@ def load_settings():
                 data = json.load(f)
                 if 'password' in data and data['password']:
                     data['password'] = decrypt_password(data['password'])
+                if 'navidrome_password' in data and data['navidrome_password']:
+                    data['navidrome_password'] = decrypt_password(data['navidrome_password'])
                 return data
     except Exception as e:
         logging.warning(f"Could not load settings: {e}")
     return {}
 
 
-def save_settings(email, password, download_location, quality):
+def save_settings(email, password, download_location, quality,
+                  navidrome_url='', navidrome_user='', navidrome_password=''):
     try:
         os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
         data = {
@@ -59,6 +62,9 @@ def save_settings(email, password, download_location, quality):
             'password': encrypt_password(password) if password else '',
             'download_location': download_location,
             'quality': quality,
+            'navidrome_url': navidrome_url,
+            'navidrome_user': navidrome_user,
+            'navidrome_password': encrypt_password(navidrome_password) if navidrome_password else '',
         }
         with open(SETTINGS_FILE, 'w') as f:
             json.dump(data, f)
@@ -83,7 +89,36 @@ def _recalc_positions():
             item['position'] = None
 
 
-def run_queue(email, password, download_location, quality):
+def trigger_navidrome_scan(navidrome_url, navidrome_user, navidrome_password):
+    """Authenticate with Navidrome and trigger a library scan."""
+    if not navidrome_url or not navidrome_user:
+        return
+    try:
+        base = navidrome_url.rstrip('/')
+        # Navidrome uses Subsonic-compatible auth; get a session token first
+        auth_resp = req_lib.post(
+            f'{base}/auth/login',
+            json={'username': navidrome_user, 'password': navidrome_password},
+            timeout=10
+        )
+        auth_resp.raise_for_status()
+        token = auth_resp.json().get('token')
+        if not token:
+            logging.warning("Navidrome scan: no token returned from auth.")
+            return
+        scan_resp = req_lib.post(
+            f'{base}/api/scanner/trigger',
+            headers={'x-nd-authorization': f'Bearer {token}'},
+            timeout=10
+        )
+        scan_resp.raise_for_status()
+        logging.info("Navidrome library scan triggered successfully.")
+    except Exception as e:
+        logging.warning(f"Navidrome scan trigger failed: {e}")
+
+
+def run_queue(email, password, download_location, quality,
+              navidrome_url='', navidrome_user='', navidrome_password=''):
     global download_running
     from qobuz_dl import QobuzDL
 
@@ -101,6 +136,8 @@ def run_queue(email, password, download_location, quality):
         emit_queue_state()
         download_running = False
         return
+
+    any_downloaded = False
 
     while True:
         next_item = None
@@ -123,6 +160,7 @@ def run_queue(email, password, download_location, quality):
             with queue_lock:
                 next_item['status'] = 'downloaded'
                 next_item['position'] = None
+            any_downloaded = True
         except Exception as e:
             logging.error(f"Download failed for {next_item['url']}: {e}")
             with queue_lock:
@@ -132,6 +170,9 @@ def run_queue(email, password, download_location, quality):
         with queue_lock:
             _recalc_positions()
         emit_queue_state()
+
+    if any_downloaded:
+        trigger_navidrome_scan(navidrome_url, navidrome_user, navidrome_password)
 
     download_running = False
     emit_queue_state()
@@ -144,7 +185,10 @@ def index():
                            email=settings.get('email', ''),
                            password=settings.get('password', ''),
                            download_location=settings.get('download_location', '/downloads'),
-                           quality=settings.get('quality', 7))
+                           quality=settings.get('quality', 7),
+                           navidrome_url=settings.get('navidrome_url', ''),
+                           navidrome_user=settings.get('navidrome_user', ''),
+                           navidrome_password=settings.get('navidrome_password', ''))
 
 
 @app.route('/save_settings', methods=['POST'])
@@ -155,6 +199,9 @@ def save_settings_route():
         data.get('password', ''),
         data.get('download_location', ''),
         data.get('quality', 7),
+        data.get('navidrome_url', ''),
+        data.get('navidrome_user', ''),
+        data.get('navidrome_password', ''),
     )
     return jsonify(status='ok')
 
@@ -186,9 +233,13 @@ def add_urls():
 
     if not download_running:
         download_running = True
+        settings = load_settings()
         t = threading.Thread(
             target=run_queue,
-            args=(email, password, download_location, quality),
+            args=(email, password, download_location, quality,
+                  settings.get('navidrome_url', ''),
+                  settings.get('navidrome_user', ''),
+                  settings.get('navidrome_password', '')),
             daemon=True
         )
         t.start()

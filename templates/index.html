@@ -48,6 +48,22 @@
                         </select>
                     </div>
                 </div>
+                <hr class="mt-2 mb-3" style="border-color:#3d4147;">
+                <h6 class="mb-3" style="color:#90a0b7;">Navidrome Integration <span class="text-muted small font-weight-normal">(optional)</span></h6>
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label for="navidrome_url">Navidrome URL</label>
+                        <input type="text" class="form-control" id="navidrome_url" value="{{ navidrome_url }}" placeholder="http://navidrome:4533">
+                    </div>
+                    <div class="form-group col-md-3">
+                        <label for="navidrome_user">Username</label>
+                        <input type="text" class="form-control" id="navidrome_user" value="{{ navidrome_user }}" placeholder="admin">
+                    </div>
+                    <div class="form-group col-md-3">
+                        <label for="navidrome_password">Password</label>
+                        <input type="password" class="form-control" id="navidrome_password" value="{{ navidrome_password }}" placeholder="••••••••">
+                    </div>
+                </div>
                 <button id="saveSettingsBtn" class="btn btn-secondary">💾 Save Settings</button>
                 <span id="saveStatus" class="ml-3 save-status"></span>
             </div>
@@ -220,6 +236,9 @@ function getFormData() {
         password: document.getElementById('password').value,
         download_location: document.getElementById('download_location').value.trim(),
         quality: parseInt(document.getElementById('quality').value),
+        navidrome_url: document.getElementById('navidrome_url').value.trim(),
+        navidrome_user: document.getElementById('navidrome_user').value.trim(),
+        navidrome_password: document.getElementById('navidrome_password').value,
     };
 }
 
