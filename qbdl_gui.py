@@ -297,6 +297,79 @@ def clear_finished():
     return jsonify(status='ok')
 
 
+QOBUZ_WEB = "https://play.qobuz.com/"
+
+
+def get_qobuz_client():
+    settings = load_settings()
+    email = settings.get('email', '')
+    password = settings.get('password', '')
+    download_location = settings.get('download_location', '/downloads')
+    quality = int(settings.get('quality', 7))
+    if not email or not password:
+        return None, 'Qobuz credentials not configured in settings.'
+    try:
+        from qobuz_dl import QobuzDL
+        qobuz = QobuzDL(directory=download_location, quality=quality)
+        qobuz.get_tokens()
+        qobuz.initialize_client(email, password, qobuz.app_id, qobuz.secrets)
+        return qobuz, None
+    except Exception as e:
+        return None, str(e)
+
+
+@app.route('/qobuz_search')
+def qobuz_search_route():
+    query = request.args.get('q', '').strip()
+    limit = int(request.args.get('limit', 10))
+    if not query:
+        return jsonify(error='No query provided'), 400
+    qobuz, err = get_qobuz_client()
+    if err:
+        return jsonify(error=err), 400
+    try:
+        results = qobuz.client.search_albums(query, limit)
+        albums = results.get('albums', {}).get('items', [])
+        items = []
+        for a in albums:
+            released = a.get('released_at', '') or ''
+            items.append({
+                'id': str(a.get('id', '')),
+                'title': a.get('title', ''),
+                'artist': (a.get('artist') or {}).get('name', ''),
+                'url': f"{QOBUZ_WEB}album/{a.get('id', '')}",
+                'track_count': a.get('tracks_count') or 0,
+                'hires': bool(a.get('hires_streamable')),
+                'year': released[:4] if released else '',
+            })
+        return jsonify(results=items)
+    except Exception as e:
+        logging.error(f"Qobuz search error: {e}")
+        return jsonify(error=str(e)), 500
+
+
+@app.route('/resolve_album_urls', methods=['POST'])
+def resolve_album_urls():
+    data = request.get_json()
+    albums = data.get('albums', [])
+    if not albums:
+        return jsonify(error='No albums provided'), 400
+    qobuz, err = get_qobuz_client()
+    if err:
+        return jsonify(error=err), 400
+    resolved = []
+    for a in albums:
+        query = f"{a.get('artist', '')} {a.get('title', '')}".strip()
+        try:
+            results = qobuz.client.search_albums(query, 1)
+            items = results.get('albums', {}).get('items', [])
+            resolved.append(f"{QOBUZ_WEB}album/{items[0]['id']}" if items else None)
+        except Exception as e:
+            logging.warning(f"Could not resolve URL for '{query}': {e}")
+            resolved.append(None)
+    return jsonify(urls=resolved)
+
+
 @app.route('/artist_search')
 def artist_search():
     """Search MusicBrainz for an artist and return their release groups with metadata."""
@@ -356,6 +429,7 @@ def artist_releases():
                             'fmt': 'json',
                             'limit': 100,
                             'offset': offset,
+                            'inc': 'releases',
                         },
                         headers=MB_UA,
                         timeout=15
@@ -392,6 +466,13 @@ def artist_releases():
             date = rg.get('first-release-date', '')
             year = date[:4] if date else ''
 
+            rg_releases = rg.get('releases', [])
+            track_count = None
+            if rg_releases:
+                counts = [rel.get('track-count') for rel in rg_releases if rel.get('track-count')]
+                if counts:
+                    track_count = max(counts)
+
             releases.append({
                 'id': rg['id'],
                 'title': rg['title'],
@@ -400,7 +481,7 @@ def artist_releases():
                 'secondary_types': secondary,
                 'date': date,
                 'year': year,
-                'track_count': None,
+                'track_count': track_count,
                 'release_count': rg.get('release-count', 0),
             })
 

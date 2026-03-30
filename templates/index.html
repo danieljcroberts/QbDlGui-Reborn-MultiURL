@@ -79,6 +79,9 @@
             <a class="nav-link active" id="tab-queue-link" data-toggle="tab" href="#tab-queue">▶ Download Queue</a>
         </li>
         <li class="nav-item">
+            <a class="nav-link" id="tab-search-link" data-toggle="tab" href="#tab-search">🔍 Search Qobuz</a>
+        </li>
+        <li class="nav-item">
             <a class="nav-link" id="tab-artist-link" data-toggle="tab" href="#tab-artist">🎵 Artist Browser</a>
         </li>
     </ul>
@@ -111,6 +114,40 @@
                 </thead>
                 <tbody id="queueBody"></tbody>
             </table>
+        </div>
+
+        <!-- ── Search Qobuz Tab ── -->
+        <div class="tab-pane fade" id="tab-search">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <label for="qobuzSearchInput">Search albums <span class="text-muted small">(artist, album, or both)</span></label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="qobuzSearchInput" placeholder="e.g. Radiohead OK Computer, Joni Mitchell Blue…">
+                        <div class="input-group-append">
+                            <button class="btn btn-primary" id="qobuzSearchBtn">🔍 Search</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="qobuzSearchStatus" class="text-muted small mb-2"></div>
+            <div id="qobuzResultsSection" style="display:none;">
+                <table class="table table-dark table-sm release-table" id="qobuzResultsTable">
+                    <thead>
+                        <tr>
+                            <th style="width:36px"></th>
+                            <th>Title</th>
+                            <th>Artist</th>
+                            <th style="width:60px">Year</th>
+                            <th style="width:70px">Tracks</th>
+                            <th style="width:70px">Quality</th>
+                        </tr>
+                    </thead>
+                    <tbody id="qobuzResultsBody"></tbody>
+                </table>
+                <button class="btn btn-primary btn-sm mt-2" id="qobuzAddSelectedBtn" disabled>
+                    ▶ Add Selected to Queue (<span id="qobuzSelectedCount">0</span>)
+                </button>
+            </div>
         </div>
 
         <!-- ── Artist Browser Tab ── -->
@@ -460,26 +497,41 @@ document.getElementById('addSelectedBtn').addEventListener('click', () => {
     const selected = allReleases.filter(r => selectedIds.has(r.id));
     if (!selected.length) return;
 
-    const urls = selected.map(r => {
-        const q = encodeURIComponent(`${document.getElementById('artistSearchInput').value.trim()} ${r.title}`);
-        return `https://www.qobuz.com/gb-en/search/albums/${q}`;
-    });
+    const artistName = document.getElementById('artistSearchInput').value.trim();
+    const btn = document.getElementById('addSelectedBtn');
+    btn.disabled = true;
+    setArtistLoading(`Resolving ${selected.length} album(s) on Qobuz…`);
 
-    const formData = getFormData();
-    fetch('/add_urls', {
+    const albums = selected.map(r => ({ artist: artistName, title: r.title }));
+
+    fetch('/resolve_album_urls', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({...formData, urls})
-    }).then(r => r.json()).then(d => {
-        if (d.status === 'ok') {
-            document.getElementById('tab-queue-link').click();
-            selectedIds.clear();
-            renderReleases();
-            updateSelectedCount();
-        } else {
-            alert('Error: ' + d.message);
-        }
-    });
+        body: JSON.stringify({ albums })
+    }).then(r => r.json()).then(data => {
+        if (data.error) { alert('Error: ' + data.error); btn.disabled = false; setArtistLoading(''); return; }
+        const urls = data.urls.filter(Boolean);
+        const failed = data.urls.filter(u => !u).length;
+        if (!urls.length) { alert('Could not resolve any albums on Qobuz. Check your Qobuz credentials in settings.'); btn.disabled = false; setArtistLoading(''); return; }
+        if (failed) setArtistLoading(`${failed} album(s) could not be found on Qobuz and were skipped.`);
+        else setArtistLoading('');
+
+        fetch('/add_urls', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({...getFormData(), urls})
+        }).then(r => r.json()).then(d => {
+            btn.disabled = false;
+            if (d.status === 'ok') {
+                document.getElementById('tab-queue-link').click();
+                selectedIds.clear();
+                renderReleases();
+                updateSelectedCount();
+            } else {
+                alert('Error: ' + d.message);
+            }
+        });
+    }).catch(e => { alert('Request failed: ' + e); btn.disabled = false; setArtistLoading(''); });
 });
 
 document.getElementById('testNavidromeBtn').addEventListener('click', function() {
@@ -509,6 +561,83 @@ document.getElementById('testNavidromeBtn').addEventListener('click', function()
         st.textContent = '✗ Request failed';
         st.className = 'ml-3 save-status text-danger';
         btn.disabled = false;
+    });
+});
+
+// ── Search Qobuz ─────────────────────────────────────────────────────────────
+let qobuzResults = [];
+let qobuzSelectedUrls = new Set();
+
+document.getElementById('qobuzSearchBtn').addEventListener('click', doQobuzSearch);
+document.getElementById('qobuzSearchInput').addEventListener('keydown', e => { if (e.key === 'Enter') doQobuzSearch(); });
+
+function doQobuzSearch() {
+    const q = document.getElementById('qobuzSearchInput').value.trim();
+    if (!q) return;
+    const st = document.getElementById('qobuzSearchStatus');
+    st.textContent = 'Searching Qobuz…';
+    document.getElementById('qobuzResultsSection').style.display = 'none';
+    qobuzResults = [];
+    qobuzSelectedUrls.clear();
+
+    fetch('/qobuz_search?q=' + encodeURIComponent(q) + '&limit=10')
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { st.textContent = '✗ ' + data.error; return; }
+            qobuzResults = data.results;
+            st.textContent = qobuzResults.length ? `${qobuzResults.length} results` : 'No results found.';
+            if (qobuzResults.length) { renderQobuzResults(); document.getElementById('qobuzResultsSection').style.display = ''; }
+        })
+        .catch(e => { st.textContent = '✗ Request failed: ' + e; });
+}
+
+function renderQobuzResults() {
+    const body = document.getElementById('qobuzResultsBody');
+    body.innerHTML = '';
+    qobuzResults.forEach(r => {
+        const checked = qobuzSelectedUrls.has(r.url) ? 'checked' : '';
+        const tr = document.createElement('tr');
+        tr.className = qobuzSelectedUrls.has(r.url) ? 'row-selected' : '';
+        tr.innerHTML = `
+            <td><input type="checkbox" class="qobuz-checkbox release-checkbox" data-url="${esc(r.url)}" ${checked}></td>
+            <td class="release-title">${esc(r.title)}</td>
+            <td class="text-muted">${esc(r.artist)}</td>
+            <td class="text-muted">${r.year || '—'}</td>
+            <td class="text-muted">${r.track_count || '—'}</td>
+            <td><span class="badge ${r.hires ? 'badge-info' : 'badge-secondary'} type-badge">${r.hires ? 'Hi-Res' : 'Lossless'}</span></td>`;
+        body.appendChild(tr);
+    });
+    body.querySelectorAll('.qobuz-checkbox').forEach(cb => {
+        cb.addEventListener('change', function() {
+            if (this.checked) qobuzSelectedUrls.add(this.dataset.url);
+            else qobuzSelectedUrls.delete(this.dataset.url);
+            this.closest('tr').className = this.checked ? 'row-selected' : '';
+            updateQobuzSelectedCount();
+        });
+    });
+}
+
+function updateQobuzSelectedCount() {
+    document.getElementById('qobuzSelectedCount').textContent = qobuzSelectedUrls.size;
+    document.getElementById('qobuzAddSelectedBtn').disabled = qobuzSelectedUrls.size === 0;
+}
+
+document.getElementById('qobuzAddSelectedBtn').addEventListener('click', () => {
+    const urls = [...qobuzSelectedUrls];
+    if (!urls.length) return;
+    fetch('/add_urls', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({...getFormData(), urls})
+    }).then(r => r.json()).then(d => {
+        if (d.status === 'ok') {
+            document.getElementById('tab-queue-link').click();
+            qobuzSelectedUrls.clear();
+            renderQobuzResults();
+            updateQobuzSelectedCount();
+        } else {
+            alert('Error: ' + d.message);
+        }
     });
 });
 
