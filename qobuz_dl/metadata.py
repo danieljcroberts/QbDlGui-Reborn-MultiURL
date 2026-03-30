@@ -109,7 +109,8 @@ def _embed_id3_img(root_dir, audio: id3.ID3):
 
 # Use KeyError catching instead of dict.get to avoid empty tags
 def tag_flac(
-    filename, root_dir, final_name, d: dict, album, istrack=True, em_image=False
+    filename, root_dir, final_name, d: dict, album, istrack=True, em_image=False,
+    overrides=None
 ):
     """
     Tag a FLAC file
@@ -159,6 +160,10 @@ def tag_flac(
         audio["DATE"] = album["release_date_original"]
         audio["COPYRIGHT"] = _format_copyright(album.get("copyright") or "n/a")
 
+    if overrides:
+        for key, val in overrides.items():
+            audio[key.upper()] = val
+
     if em_image:
         _embed_flac_img(root_dir, audio)
 
@@ -166,7 +171,8 @@ def tag_flac(
     os.rename(filename, final_name)
 
 
-def tag_mp3(filename, root_dir, final_name, d, album, istrack=True, em_image=False):
+def tag_mp3(filename, root_dir, final_name, d, album, istrack=True, em_image=False,
+            overrides=None):
     """
     Tag an mp3 file
 
@@ -221,6 +227,13 @@ def tag_mp3(filename, root_dir, final_name, d, album, istrack=True, em_image=Fal
     for k, v in tags.items():
         id3tag = ID3_LEGEND[k]
         audio[id3tag.__name__] = id3tag(encoding=3, text=v)
+
+    if overrides:
+        for k, v in overrides.items():
+            k_lower = k.lower()
+            if k_lower in ID3_LEGEND:
+                id3tag = ID3_LEGEND[k_lower]
+                audio[id3tag.__name__] = id3tag(encoding=3, text=v)
 
     if em_image:
         _embed_id3_img(root_dir, audio)

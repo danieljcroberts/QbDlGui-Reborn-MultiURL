@@ -1,9 +1,11 @@
 from flask_socketio import SocketIO, emit
 from flask import Flask, render_template, request, session, jsonify
 from cryptography.fernet import Fernet
+import base64
 import logging
 import os
 import json
+import re
 import threading
 import uuid
 import requests as req_lib
@@ -47,6 +49,8 @@ def load_settings():
                     data['password'] = decrypt_password(data['password'])
                 if 'navidrome_password' in data and data['navidrome_password']:
                     data['navidrome_password'] = decrypt_password(data['navidrome_password'])
+                if 'spotify_client_secret' in data and data['spotify_client_secret']:
+                    data['spotify_client_secret'] = decrypt_password(data['spotify_client_secret'])
                 return data
     except Exception as e:
         logging.warning(f"Could not load settings: {e}")
@@ -54,7 +58,8 @@ def load_settings():
 
 
 def save_settings(email, password, download_location, quality,
-                  navidrome_url='', navidrome_user='', navidrome_password=''):
+                  navidrome_url='', navidrome_user='', navidrome_password='',
+                  spotify_client_id='', spotify_client_secret=''):
     try:
         os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
         data = {
@@ -65,6 +70,8 @@ def save_settings(email, password, download_location, quality,
             'navidrome_url': navidrome_url,
             'navidrome_user': navidrome_user,
             'navidrome_password': encrypt_password(navidrome_password) if navidrome_password else '',
+            'spotify_client_id': spotify_client_id,
+            'spotify_client_secret': encrypt_password(spotify_client_secret) if spotify_client_secret else '',
         }
         with open(SETTINGS_FILE, 'w') as f:
             json.dump(data, f)
@@ -117,6 +124,45 @@ def trigger_navidrome_scan(navidrome_url, navidrome_user, navidrome_password):
         logging.warning(f"Navidrome scan trigger failed: {e}")
 
 
+def _download_spotify_track(qobuz, item, download_location, quality):
+    """Download a single Qobuz track into a Spotify playlist folder with metadata overrides."""
+    from qobuz_dl.downloader import Download
+    from pathvalidate import sanitize_filename
+
+    url = item['url']
+    playlist_dir = item['playlist_dir']
+    playlist_name = item['playlist_name']
+    cover_url = item.get('cover_url', '')
+
+    # Track ID is the last path segment of the Qobuz URL
+    track_id = url.rstrip('/').split('/')[-1]
+
+    os.makedirs(playlist_dir, exist_ok=True)
+
+    # Download Spotify playlist cover once (skip if already there)
+    cover_path = os.path.join(playlist_dir, 'cover.jpg')
+    if not os.path.exists(cover_path) and cover_url:
+        try:
+            r = req_lib.get(cover_url, timeout=30)
+            r.raise_for_status()
+            with open(cover_path, 'wb') as f:
+                f.write(r.content)
+        except Exception as e:
+            logging.warning(f"Failed to download Spotify cover: {e}")
+
+    dl = Download(
+        client=qobuz.client,
+        item_id=track_id,
+        path=download_location,
+        quality=quality,
+        embed_art=True,
+        downgrade_quality=True,
+        playlist_dir=playlist_dir,
+        metadata_overrides={'albumartist': 'Various Artists', 'album': playlist_name},
+    )
+    dl.download_track()
+
+
 def run_queue(email, password, download_location, quality,
               navidrome_url='', navidrome_user='', navidrome_password=''):
     global download_running
@@ -156,7 +202,10 @@ def run_queue(email, password, download_location, quality,
         emit_queue_state()
 
         try:
-            qobuz.handle_url(next_item['url'])
+            if next_item.get('is_spotify_track'):
+                _download_spotify_track(qobuz, next_item, download_location, quality)
+            else:
+                qobuz.handle_url(next_item['url'])
             with queue_lock:
                 next_item['status'] = 'downloaded'
                 next_item['position'] = None
@@ -188,7 +237,9 @@ def index():
                            quality=settings.get('quality', 7),
                            navidrome_url=settings.get('navidrome_url', ''),
                            navidrome_user=settings.get('navidrome_user', ''),
-                           navidrome_password=settings.get('navidrome_password', ''))
+                           navidrome_password=settings.get('navidrome_password', ''),
+                           spotify_client_id=settings.get('spotify_client_id', ''),
+                           spotify_client_secret=settings.get('spotify_client_secret', ''))
 
 
 @app.route('/test_navidrome', methods=['POST'])
@@ -234,6 +285,8 @@ def save_settings_route():
         data.get('navidrome_url', ''),
         data.get('navidrome_user', ''),
         data.get('navidrome_password', ''),
+        data.get('spotify_client_id', ''),
+        data.get('spotify_client_secret', ''),
     )
     return jsonify(status='ok')
 
@@ -490,6 +543,169 @@ def artist_releases():
     except Exception as e:
         logging.error(f"Artist releases error: {e}")
         return jsonify(error=str(e)), 500
+
+
+def _get_spotify_token(client_id, client_secret):
+    credentials = base64.b64encode(f'{client_id}:{client_secret}'.encode()).decode()
+    r = req_lib.post(
+        'https://accounts.spotify.com/api/token',
+        headers={'Authorization': f'Basic {credentials}', 'Content-Type': 'application/x-www-form-urlencoded'},
+        data={'grant_type': 'client_credentials'},
+        timeout=10
+    )
+    r.raise_for_status()
+    return r.json()['access_token']
+
+
+@app.route('/get_spotify_playlist', methods=['POST'])
+def get_spotify_playlist():
+    data = request.get_json()
+    playlist_url = data.get('playlist_url', '').strip()
+    settings = load_settings()
+    client_id = settings.get('spotify_client_id', '').strip()
+    client_secret = settings.get('spotify_client_secret', '').strip()
+
+    if not client_id or not client_secret:
+        return jsonify(error='Spotify credentials not configured in settings.'), 400
+
+    match = re.search(r'playlist/([A-Za-z0-9]+)', playlist_url)
+    if not match:
+        return jsonify(error='Invalid Spotify playlist URL.'), 400
+    playlist_id = match.group(1)
+
+    try:
+        token = _get_spotify_token(client_id, client_secret)
+
+        r = req_lib.get(
+            f'https://api.spotify.com/v1/playlists/{playlist_id}',
+            headers={'Authorization': f'Bearer {token}'},
+            params={'fields': 'name,images,tracks.total'},
+            timeout=10
+        )
+        r.raise_for_status()
+        playlist = r.json()
+
+        name = playlist.get('name', 'Unknown Playlist')
+        images = playlist.get('images', [])
+        cover_url = images[0]['url'] if images else ''
+
+        tracks = []
+        offset = 0
+        while True:
+            tr = req_lib.get(
+                f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',
+                headers={'Authorization': f'Bearer {token}'},
+                params={
+                    'fields': 'items(track(id,name,artists,album(name))),next',
+                    'limit': 100,
+                    'offset': offset,
+                },
+                timeout=15
+            )
+            tr.raise_for_status()
+            tr_data = tr.json()
+            for item in tr_data.get('items', []):
+                t = item.get('track')
+                if not t or not t.get('id'):
+                    continue
+                tracks.append({
+                    'id': t.get('id'),
+                    'name': t.get('name', ''),
+                    'artist': ', '.join(a['name'] for a in t.get('artists', [])),
+                    'album': t.get('album', {}).get('name', ''),
+                })
+            if not tr_data.get('next'):
+                break
+            offset += 100
+
+        return jsonify(name=name, cover_url=cover_url, tracks=tracks, total=len(tracks))
+
+    except Exception as e:
+        logging.error(f"Spotify playlist fetch error: {e}")
+        return jsonify(error=str(e)), 500
+
+
+@app.route('/search_qobuz_tracks', methods=['POST'])
+def search_qobuz_tracks():
+    data = request.get_json()
+    tracks = data.get('tracks', [])
+    if not tracks:
+        return jsonify(error='No tracks provided'), 400
+
+    qobuz, err = get_qobuz_client()
+    if err:
+        return jsonify(error=err), 400
+
+    results = []
+    for t in tracks:
+        query = f"{t.get('artist', '')} {t.get('name', '')}".strip()
+        try:
+            r = qobuz.client.search_tracks(query, 1)
+            items = r.get('tracks', {}).get('items', [])
+            if items:
+                track = items[0]
+                results.append({
+                    'found': True,
+                    'qobuz_url': f"{QOBUZ_WEB}track/{track['id']}",
+                    'qobuz_title': track.get('title', ''),
+                    'qobuz_artist': (track.get('performer') or {}).get('name', ''),
+                })
+            else:
+                results.append({'found': False})
+        except Exception as e:
+            logging.warning(f"Qobuz track search failed for '{query}': {e}")
+            results.append({'found': False})
+
+    return jsonify(results=results)
+
+
+@app.route('/add_spotify_to_queue', methods=['POST'])
+def add_spotify_to_queue():
+    global download_running
+    data = request.get_json()
+    settings = load_settings()
+
+    playlist_name = data.get('playlist_name', 'Spotify Playlist')
+    cover_url = data.get('cover_url', '')
+    tracks = data.get('tracks', [])
+    download_location = data.get('download_location') or settings.get('download_location', '/downloads')
+    email = data.get('email') or settings.get('email', '')
+    password = data.get('password') or settings.get('password', '')
+    quality = int(data.get('quality') or settings.get('quality', 7))
+
+    from pathvalidate import sanitize_filename
+    playlist_dir = os.path.join(download_location, sanitize_filename(playlist_name))
+
+    with queue_lock:
+        for t in tracks:
+            download_queue.append({
+                'id': str(uuid.uuid4()),
+                'url': t['qobuz_url'],
+                'label': f"{t.get('artist', '')} — {t.get('name', t['qobuz_url'])}",
+                'status': 'queued',
+                'position': None,
+                'is_spotify_track': True,
+                'playlist_name': playlist_name,
+                'cover_url': cover_url,
+                'playlist_dir': playlist_dir,
+            })
+        _recalc_positions()
+
+    emit_queue_state()
+
+    if not download_running:
+        download_running = True
+        t = threading.Thread(
+            target=run_queue,
+            args=(email, password, download_location, quality,
+                  settings.get('navidrome_url', ''),
+                  settings.get('navidrome_user', ''),
+                  settings.get('navidrome_password', '')),
+            daemon=True
+        )
+        t.start()
+
+    return jsonify(status='ok')
 
 
 if __name__ == "__main__":

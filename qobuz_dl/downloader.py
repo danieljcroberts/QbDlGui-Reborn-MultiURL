@@ -43,6 +43,8 @@ class Download:
         no_cover: bool = False,
         folder_format=None,
         track_format=None,
+        playlist_dir=None,
+        metadata_overrides=None,
     ):
         self.client = client
         self.item_id = item_id
@@ -55,6 +57,8 @@ class Download:
         self.no_cover = no_cover
         self.folder_format = folder_format or DEFAULT_FOLDER
         self.track_format = track_format or DEFAULT_TRACK
+        self.playlist_dir = playlist_dir
+        self.metadata_overrides = metadata_overrides or {}
 
     def download_id_by_type(self, track=True):
         if not track:
@@ -164,21 +168,24 @@ class Download:
                     "meet quality requirement"
                 )
                 return
-            track_attr = self._get_track_attr(
-                meta, track_title, bit_depth, sampling_rate
-            )
-            sanitized_title = sanitize_filepath(folder_format.format(**track_attr))
-
-            dirn = os.path.join(self.path, sanitized_title)
-            os.makedirs(dirn, exist_ok=True)
-            if self.no_cover:
-                logger.info(f"{OFF}Skipping cover")
+            if self.playlist_dir:
+                dirn = self.playlist_dir
+                os.makedirs(dirn, exist_ok=True)
             else:
-                _get_extra(
-                    meta["album"]["image"]["large"],
-                    dirn,
-                    og_quality=self.cover_og_quality,
+                track_attr = self._get_track_attr(
+                    meta, track_title, bit_depth, sampling_rate
                 )
+                sanitized_title = sanitize_filepath(folder_format.format(**track_attr))
+                dirn = os.path.join(self.path, sanitized_title)
+                os.makedirs(dirn, exist_ok=True)
+                if self.no_cover:
+                    logger.info(f"{OFF}Skipping cover")
+                else:
+                    _get_extra(
+                        meta["album"]["image"]["large"],
+                        dirn,
+                        og_quality=self.cover_og_quality,
+                    )
             is_mp3 = True if int(self.quality) == 5 else False
             self._download_and_tag(
                 dirn,
@@ -244,6 +251,7 @@ class Download:
                 album_or_track_metadata,
                 is_track,
                 self.embed_art,
+                self.metadata_overrides or None,
             )
         except Exception as e:
             logger.error(f"{RED}Error tagging the file: {e}", exc_info=True)

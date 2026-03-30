@@ -64,6 +64,18 @@
                         <input type="password" class="form-control" id="navidrome_password" value="{{ navidrome_password }}" placeholder="••••••••">
                     </div>
                 </div>
+                <hr class="mt-2 mb-3" style="border-color:#3d4147;">
+                <h6 class="mb-3" style="color:#90a0b7;">Spotify Integration <span class="text-muted small font-weight-normal">(optional — needed for Spotify Playlist tab)</span></h6>
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label for="spotify_client_id">Spotify Client ID</label>
+                        <input type="text" class="form-control" id="spotify_client_id" value="{{ spotify_client_id }}" placeholder="From developer.spotify.com">
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label for="spotify_client_secret">Spotify Client Secret</label>
+                        <input type="password" class="form-control" id="spotify_client_secret" value="{{ spotify_client_secret }}" placeholder="••••••••">
+                    </div>
+                </div>
                 <button id="testNavidromeBtn" class="btn btn-outline-info btn-sm mb-3">🔗 Test Navidrome Connection</button>
                 <span id="navidromeTestStatus" class="ml-3 save-status"></span>
                 <br>
@@ -83,6 +95,9 @@
         </li>
         <li class="nav-item">
             <a class="nav-link" id="tab-artist-link" data-toggle="tab" href="#tab-artist">🎵 Artist Browser</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" id="tab-spotify-link" data-toggle="tab" href="#tab-spotify">🟢 Spotify Playlist</a>
         </li>
     </ul>
 
@@ -232,6 +247,60 @@
             <div id="artistEmptyMsg" class="text-muted" style="display:none;">No releases found for this artist.</div>
         </div>
 
+        <!-- ── Spotify Playlist Tab ── -->
+        <div class="tab-pane fade" id="tab-spotify">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <label for="spotifyUrlInput">Spotify Playlist URL</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="spotifyUrlInput"
+                            placeholder="https://open.spotify.com/playlist/…">
+                        <div class="input-group-append">
+                            <button class="btn btn-success" id="spotifyLoadBtn">🟢 Load Playlist</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="spotifyStatus" class="text-muted small mb-2"></div>
+
+            <div id="spotifyPlaylistInfo" style="display:none;" class="d-flex align-items-center mb-3">
+                <img id="spotifyCoverThumb" src="" alt="cover" style="width:64px;height:64px;object-fit:cover;border-radius:4px;margin-right:14px;">
+                <div>
+                    <div id="spotifyPlaylistName" class="font-weight-bold" style="font-size:1.1rem;"></div>
+                    <div id="spotifyTrackCount" class="text-muted small"></div>
+                </div>
+                <button class="btn btn-outline-info btn-sm ml-auto" id="spotifyMatchBtn" style="display:none;">
+                    🔍 Match on Qobuz
+                </button>
+            </div>
+
+            <div id="spotifyResultsSection" style="display:none;">
+                <div class="d-flex align-items-center mb-2">
+                    <div class="custom-control custom-checkbox mr-3">
+                        <input type="checkbox" class="custom-control-input" id="spotifySelectAll">
+                        <label class="custom-control-label small" for="spotifySelectAll">Select all found</label>
+                    </div>
+                    <button class="btn btn-primary btn-sm" id="spotifyAddQueueBtn" disabled>
+                        ▶ Add Selected to Queue (<span id="spotifySelectedCount">0</span>)
+                    </button>
+                    <span id="spotifyMatchStatus" class="ml-3 text-muted small"></span>
+                </div>
+                <table class="table table-dark table-sm release-table" id="spotifyTrackTable">
+                    <thead>
+                        <tr>
+                            <th style="width:36px"></th>
+                            <th>#</th>
+                            <th>Track</th>
+                            <th>Artist</th>
+                            <th style="width:110px">Qobuz Match</th>
+                        </tr>
+                    </thead>
+                    <tbody id="spotifyTrackBody"></tbody>
+                </table>
+            </div>
+        </div>
+
     </div><!-- /tab-content -->
 
     <div class="footer mt-4">
@@ -263,7 +332,8 @@ function renderQueue(queue) {
     queue.forEach((item, idx) => {
         const tr = document.createElement('tr');
         tr.className = item.status==='downloading' ? 'row-downloading' : item.status==='downloaded' ? 'row-done' : item.status==='failed' ? 'row-failed' : '';
-        tr.innerHTML = `<td class="text-muted">${idx+1}</td><td class="url-cell" title="${esc(item.url)}">${esc(item.url)}</td><td>${statusBadge(item)}</td>`;
+        const display = item.label || item.url;
+        tr.innerHTML = `<td class="text-muted">${idx+1}</td><td class="url-cell" title="${esc(item.url)}">${esc(display)}</td><td>${statusBadge(item)}</td>`;
         body.appendChild(tr);
     });
 }
@@ -279,6 +349,8 @@ function getFormData() {
         navidrome_url: document.getElementById('navidrome_url').value.trim(),
         navidrome_user: document.getElementById('navidrome_user').value.trim(),
         navidrome_password: document.getElementById('navidrome_password').value,
+        spotify_client_id: document.getElementById('spotify_client_id').value.trim(),
+        spotify_client_secret: document.getElementById('spotify_client_secret').value,
     };
 }
 
@@ -653,6 +725,200 @@ function hideReleases() {
     filteredReleases = [];
     selectedIds.clear();
     updateSelectedCount();
+}
+
+// ── Spotify Playlist ──────────────────────────────────────────────────────────
+let spotifyTracks = [];       // [{id, name, artist, album, found, qobuz_url, qobuz_title, qobuz_artist}]
+let spotifyPlaylistName = '';
+let spotifyCoverUrl = '';
+let spotifySelectedIds = new Set();
+
+document.getElementById('spotifyLoadBtn').addEventListener('click', doSpotifyLoad);
+document.getElementById('spotifyUrlInput').addEventListener('keydown', e => { if (e.key === 'Enter') doSpotifyLoad(); });
+
+function doSpotifyLoad() {
+    const url = document.getElementById('spotifyUrlInput').value.trim();
+    if (!url) return;
+    setSpotifyStatus('Fetching playlist from Spotify…');
+    document.getElementById('spotifyPlaylistInfo').style.display = 'none';
+    document.getElementById('spotifyResultsSection').style.display = 'none';
+    document.getElementById('spotifyMatchBtn').style.display = 'none';
+    spotifyTracks = [];
+    spotifySelectedIds.clear();
+
+    fetch('/get_spotify_playlist', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({playlist_url: url})
+    }).then(r => r.json()).then(data => {
+        if (data.error) { setSpotifyStatus('✗ ' + data.error); return; }
+        spotifyPlaylistName = data.name;
+        spotifyCoverUrl = data.cover_url || '';
+        spotifyTracks = data.tracks.map(t => ({...t, found: null, qobuz_url: null, qobuz_title: null, qobuz_artist: null}));
+
+        document.getElementById('spotifyPlaylistName').textContent = data.name;
+        document.getElementById('spotifyTrackCount').textContent = `${data.total} tracks`;
+        if (data.cover_url) {
+            document.getElementById('spotifyCoverThumb').src = data.cover_url;
+            document.getElementById('spotifyCoverThumb').style.display = '';
+        } else {
+            document.getElementById('spotifyCoverThumb').style.display = 'none';
+        }
+        document.getElementById('spotifyPlaylistInfo').style.display = '';
+        document.getElementById('spotifyMatchBtn').style.display = '';
+        setSpotifyStatus(`Loaded ${data.total} tracks. Click "Match on Qobuz" to find them.`);
+    }).catch(e => setSpotifyStatus('✗ Request failed: ' + e));
+}
+
+document.getElementById('spotifyMatchBtn').addEventListener('click', doSpotifyMatch);
+
+function doSpotifyMatch() {
+    if (!spotifyTracks.length) return;
+    const btn = document.getElementById('spotifyMatchBtn');
+    btn.disabled = true;
+    setSpotifyStatus(`Searching Qobuz for ${spotifyTracks.length} tracks…`);
+
+    // Send tracks in batches of 20 to avoid long requests
+    const batchSize = 20;
+    const batches = [];
+    for (let i = 0; i < spotifyTracks.length; i += batchSize) {
+        batches.push(spotifyTracks.slice(i, i + batchSize).map(t => ({name: t.name, artist: t.artist})));
+    }
+
+    let offset = 0;
+    function runBatch(idx) {
+        if (idx >= batches.length) {
+            const found = spotifyTracks.filter(t => t.found).length;
+            setSpotifyStatus(`Matched ${found} of ${spotifyTracks.length} tracks on Qobuz.`);
+            btn.disabled = false;
+            renderSpotifyTracks();
+            document.getElementById('spotifyResultsSection').style.display = '';
+            autoSelectFound();
+            return;
+        }
+        setSpotifyStatus(`Searching Qobuz… (${Math.min(offset + batchSize, spotifyTracks.length)}/${spotifyTracks.length})`);
+        fetch('/search_qobuz_tracks', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({tracks: batches[idx]})
+        }).then(r => r.json()).then(data => {
+            if (data.error) { setSpotifyStatus('✗ ' + data.error); btn.disabled = false; return; }
+            data.results.forEach((res, i) => {
+                const t = spotifyTracks[offset + i];
+                t.found = res.found;
+                t.qobuz_url = res.qobuz_url || null;
+                t.qobuz_title = res.qobuz_title || null;
+                t.qobuz_artist = res.qobuz_artist || null;
+            });
+            offset += batchSize;
+            runBatch(idx + 1);
+        }).catch(e => { setSpotifyStatus('✗ Request failed: ' + e); btn.disabled = false; });
+    }
+    runBatch(0);
+}
+
+function autoSelectFound() {
+    spotifySelectedIds.clear();
+    spotifyTracks.forEach((t, i) => { if (t.found) spotifySelectedIds.add(i); });
+    updateSpotifySelectedCount();
+    syncSpotifySelectAll();
+}
+
+function renderSpotifyTracks() {
+    const body = document.getElementById('spotifyTrackBody');
+    body.innerHTML = '';
+    spotifyTracks.forEach((t, i) => {
+        const checked = spotifySelectedIds.has(i) ? 'checked' : '';
+        const disabled = !t.found ? 'disabled' : '';
+        let matchBadge;
+        if (t.found === null) {
+            matchBadge = '<span class="badge badge-secondary">—</span>';
+        } else if (t.found) {
+            matchBadge = `<span class="badge badge-success" title="${esc(t.qobuz_artist)} — ${esc(t.qobuz_title)}">✓ Found</span>`;
+        } else {
+            matchBadge = '<span class="badge badge-danger">✗ Not found</span>';
+        }
+        const tr = document.createElement('tr');
+        tr.className = spotifySelectedIds.has(i) ? 'row-selected' : (t.found === false ? 'row-failed' : '');
+        tr.innerHTML = `
+            <td><input type="checkbox" class="spotify-track-cb" data-idx="${i}" ${checked} ${disabled}></td>
+            <td class="text-muted">${i + 1}</td>
+            <td class="release-title">${esc(t.name)}</td>
+            <td class="text-muted">${esc(t.artist)}</td>
+            <td>${matchBadge}</td>`;
+        body.appendChild(tr);
+    });
+
+    body.querySelectorAll('.spotify-track-cb').forEach(cb => {
+        cb.addEventListener('change', function() {
+            const idx = parseInt(this.dataset.idx);
+            if (this.checked) spotifySelectedIds.add(idx);
+            else spotifySelectedIds.delete(idx);
+            this.closest('tr').className = this.checked ? 'row-selected' : '';
+            updateSpotifySelectedCount();
+            syncSpotifySelectAll();
+        });
+    });
+}
+
+function updateSpotifySelectedCount() {
+    document.getElementById('spotifySelectedCount').textContent = spotifySelectedIds.size;
+    document.getElementById('spotifyAddQueueBtn').disabled = spotifySelectedIds.size === 0;
+}
+
+function syncSpotifySelectAll() {
+    const all = document.querySelectorAll('.spotify-track-cb:not(:disabled)');
+    const checked = [...all].filter(c => c.checked).length;
+    const sa = document.getElementById('spotifySelectAll');
+    sa.indeterminate = checked > 0 && checked < all.length;
+    sa.checked = all.length > 0 && checked === all.length;
+}
+
+document.getElementById('spotifySelectAll').addEventListener('change', function() {
+    spotifyTracks.forEach((t, i) => {
+        if (!t.found) return;
+        if (this.checked) spotifySelectedIds.add(i);
+        else spotifySelectedIds.delete(i);
+    });
+    renderSpotifyTracks();
+    updateSpotifySelectedCount();
+});
+
+document.getElementById('spotifyAddQueueBtn').addEventListener('click', () => {
+    const selected = [...spotifySelectedIds].map(i => spotifyTracks[i]).filter(t => t.qobuz_url);
+    if (!selected.length) return;
+
+    const btn = document.getElementById('spotifyAddQueueBtn');
+    btn.disabled = true;
+    setSpotifyStatus(`Adding ${selected.length} track(s) to queue…`);
+
+    const fd = getFormData();
+    fetch('/add_spotify_to_queue', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            ...fd,
+            playlist_name: spotifyPlaylistName,
+            cover_url: spotifyCoverUrl,
+            tracks: selected.map(t => ({
+                qobuz_url: t.qobuz_url,
+                name: t.name,
+                artist: t.artist,
+            })),
+        })
+    }).then(r => r.json()).then(d => {
+        btn.disabled = false;
+        if (d.status === 'ok') {
+            document.getElementById('tab-queue-link').click();
+            setSpotifyStatus('');
+        } else {
+            setSpotifyStatus('✗ ' + d.message);
+        }
+    }).catch(e => { btn.disabled = false; setSpotifyStatus('✗ Request failed: ' + e); });
+});
+
+function setSpotifyStatus(msg) {
+    document.getElementById('spotifyStatus').textContent = msg;
 }
 </script>
 </body>
