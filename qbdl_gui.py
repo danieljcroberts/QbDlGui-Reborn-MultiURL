@@ -191,6 +191,32 @@ def index():
                            navidrome_password=settings.get('navidrome_password', ''))
 
 
+@app.route('/test_navidrome', methods=['POST'])
+def test_navidrome():
+    data = request.get_json()
+    url = data.get('navidrome_url', '').rstrip('/')
+    user = data.get('navidrome_user', '')
+    password = data.get('navidrome_password', '')
+
+    if not url or not user:
+        return jsonify(status='error', message='URL and username are required.')
+
+    try:
+        r = req_lib.post(
+            f'{url}/auth/login',
+            json={'username': user, 'password': password},
+            timeout=10
+        )
+        if r.status_code == 200 and r.json().get('token'):
+            return jsonify(status='ok', message='Connected to Navidrome successfully.')
+        else:
+            return jsonify(status='error', message=f'Authentication failed (HTTP {r.status_code}).')
+    except req_lib.exceptions.ConnectionError:
+        return jsonify(status='error', message='Could not reach Navidrome — check the URL.')
+    except Exception as e:
+        return jsonify(status='error', message=str(e))
+
+
 @app.route('/save_settings', methods=['POST'])
 def save_settings_route():
     data = request.get_json()

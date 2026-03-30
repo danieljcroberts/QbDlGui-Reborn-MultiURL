@@ -64,6 +64,9 @@
                         <input type="password" class="form-control" id="navidrome_password" value="{{ navidrome_password }}" placeholder="••••••••">
                     </div>
                 </div>
+                <button id="testNavidromeBtn" class="btn btn-outline-info btn-sm mb-3">🔗 Test Navidrome Connection</button>
+                <span id="navidromeTestStatus" class="ml-3 save-status"></span>
+                <br>
                 <button id="saveSettingsBtn" class="btn btn-secondary">💾 Save Settings</button>
                 <span id="saveStatus" class="ml-3 save-status"></span>
             </div>
@@ -476,6 +479,36 @@ document.getElementById('addSelectedBtn').addEventListener('click', () => {
         } else {
             alert('Error: ' + d.message);
         }
+    });
+});
+
+document.getElementById('testNavidromeBtn').addEventListener('click', function() {
+    const btn = this, st = document.getElementById('navidromeTestStatus');
+    btn.disabled = true;
+    st.textContent = 'Testing…';
+    st.className = 'ml-3 save-status text-muted';
+    fetch('/test_navidrome', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            navidrome_url: document.getElementById('navidrome_url').value.trim(),
+            navidrome_user: document.getElementById('navidrome_user').value.trim(),
+            navidrome_password: document.getElementById('navidrome_password').value,
+        })
+    }).then(r => r.json()).then(d => {
+        if (d.status === 'ok') {
+            st.textContent = '✓ ' + d.message;
+            st.className = 'ml-3 save-status text-success';
+        } else {
+            st.textContent = '✗ ' + d.message;
+            st.className = 'ml-3 save-status text-danger';
+        }
+        btn.disabled = false;
+        setTimeout(() => { st.textContent = ''; }, 5000);
+    }).catch(() => {
+        st.textContent = '✗ Request failed';
+        st.className = 'ml-3 save-status text-danger';
+        btn.disabled = false;
     });
 });
 
