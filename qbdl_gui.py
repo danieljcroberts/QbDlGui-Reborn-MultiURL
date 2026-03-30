@@ -332,7 +332,12 @@ def qobuz_search_route():
         albums = results.get('albums', {}).get('items', [])
         items = []
         for a in albums:
-            released = a.get('released_at', '') or ''
+            released_at = a.get('released_at') or a.get('release_date_original', '')
+            if isinstance(released_at, int):
+                from datetime import datetime
+                year = str(datetime.utcfromtimestamp(released_at).year)
+            else:
+                year = str(released_at)[:4] if released_at else ''
             items.append({
                 'id': str(a.get('id', '')),
                 'title': a.get('title', ''),
@@ -340,7 +345,7 @@ def qobuz_search_route():
                 'url': f"{QOBUZ_WEB}album/{a.get('id', '')}",
                 'track_count': a.get('tracks_count') or 0,
                 'hires': bool(a.get('hires_streamable')),
-                'year': released[:4] if released else '',
+                'year': year,
             })
         return jsonify(results=items)
     except Exception as e:
