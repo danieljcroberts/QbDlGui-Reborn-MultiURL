@@ -434,7 +434,6 @@ def artist_releases():
                             'fmt': 'json',
                             'limit': 100,
                             'offset': offset,
-                            'inc': 'releases',
                         },
                         headers=MB_UA,
                         timeout=15
@@ -470,13 +469,6 @@ def artist_releases():
 
             date = rg.get('first-release-date', '')
             year = date[:4] if date else ''
-
-            rg_releases = rg.get('releases', [])
-            track_count = None
-            if rg_releases:
-                counts = [rel.get('track-count') for rel in rg_releases if rel.get('track-count')]
-                if counts:
-                    track_count = max(counts)
 
             releases.append({
                 'id': rg['id'],
