@@ -21,7 +21,11 @@ encryption_key = os.environ.get('ENCRYPTION_KEY') or Fernet.generate_key()
 fernet = Fernet(encryption_key)
 
 SETTINGS_FILE = os.environ.get('SETTINGS_FILE', '/config/settings.json')
-BUILD_SHA = os.environ.get('BUILD_SHA', 'dev')[:7]
+try:
+    with open(os.path.join(os.path.dirname(__file__), 'build_sha.txt')) as _f:
+        BUILD_SHA = _f.read().strip()[:7]
+except Exception:
+    BUILD_SHA = os.environ.get('BUILD_SHA', 'dev')[:7]
 MB_UA = {'User-Agent': 'QobuzDlGui/2.0 (danieljcroberts@gmail.com)'}
 
 # In-memory queue: list of dicts {id, url, status, position}

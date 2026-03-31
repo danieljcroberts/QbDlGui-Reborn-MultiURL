@@ -22,6 +22,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Write build SHA to file
+        run: echo "${{ github.sha }}" > build_sha.txt
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
