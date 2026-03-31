@@ -306,7 +306,7 @@
     </div><!-- /tab-content -->
 
     <div class="footer mt-4">
-        <p>QoBuzDlGui-Reborn &copy; Gyarbij, LilKidSuave &amp; danieljcroberts 2023–2025 &mdash; v1.0.0</p>
+        <p>QoBuzDlGui-Reborn &copy; Gyarbij, LilKidSuave &amp; danieljcroberts 2023–2025 &mdash; build <code>{{ build_sha }}</code></p>
     </div>
 </div>
 
@@ -764,7 +764,13 @@ function doSpotifyMatch() {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({tracks: batches[idx]})
-        }).then(r => r.json()).then(data => {
+        }).then(r => r.text()).then(rawText => {
+            let data;
+            try { data = JSON.parse(rawText); }
+            catch (_) {
+                setSpotifyStatus(`✗ Server error during matching: ${rawText.substring(0, 200)}`);
+                btn.disabled = false; return;
+            }
             if (data.error) { setSpotifyStatus('✗ ' + data.error); btn.disabled = false; return; }
             data.results.forEach((res, i) => {
                 const t = spotifyTracks[offset + i];
@@ -971,7 +977,13 @@ async function doSpotifyCsvLoad() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
         });
-        const data = await r.json();
+        const rawText = await r.text();
+        let data;
+        try { data = JSON.parse(rawText); }
+        catch (_) {
+            setSpotifyStatus(`✗ Server error (HTTP ${r.status}): ${rawText.substring(0, 300)}`);
+            return;
+        }
         if (data.error) { setSpotifyStatus('✗ ' + data.error); return; }
 
         spotifyPlaylistName = data.name;

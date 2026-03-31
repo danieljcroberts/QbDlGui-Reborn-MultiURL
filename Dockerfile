@@ -9,6 +9,9 @@ EXPOSE 5000
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+ARG BUILD_SHA=dev
+ENV BUILD_SHA=${BUILD_SHA}
+
 # Create config dir for persistent settings
 RUN mkdir -p /config
 

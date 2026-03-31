@@ -21,6 +21,7 @@ encryption_key = os.environ.get('ENCRYPTION_KEY') or Fernet.generate_key()
 fernet = Fernet(encryption_key)
 
 SETTINGS_FILE = os.environ.get('SETTINGS_FILE', '/config/settings.json')
+BUILD_SHA = os.environ.get('BUILD_SHA', 'dev')[:7]
 MB_UA = {'User-Agent': 'QobuzDlGui/2.0 (danieljcroberts@gmail.com)'}
 
 # In-memory queue: list of dicts {id, url, status, position}
@@ -230,12 +231,13 @@ def index():
                            quality=settings.get('quality', 7),
                            navidrome_url=settings.get('navidrome_url', ''),
                            navidrome_user=settings.get('navidrome_user', ''),
-                           navidrome_password=settings.get('navidrome_password', ''))
+                           navidrome_password=settings.get('navidrome_password', ''),
+                           build_sha=BUILD_SHA)
 
 
 @app.route('/test_navidrome', methods=['POST'])
 def test_navidrome():
-    data = request.get_json()
+    data = request.get_json(force=True, silent=False)
     url = data.get('navidrome_url', '').rstrip('/')
     user = data.get('navidrome_user', '')
     password = data.get('navidrome_password', '')
@@ -267,7 +269,7 @@ def test_navidrome():
 
 @app.route('/save_settings', methods=['POST'])
 def save_settings_route():
-    data = request.get_json()
+    data = request.get_json(force=True, silent=False)
     save_settings(
         data.get('email', ''),
         data.get('password', ''),
@@ -283,7 +285,7 @@ def save_settings_route():
 @app.route('/add_urls', methods=['POST'])
 def add_urls():
     global download_running
-    data = request.get_json()
+    data = request.get_json(force=True, silent=False)
     email = data.get('email', '')
     password = data.get('password', '')
     download_location = data.get('download_location', '/downloads')
@@ -397,7 +399,7 @@ def qobuz_search_route():
 
 @app.route('/resolve_album_urls', methods=['POST'])
 def resolve_album_urls():
-    data = request.get_json()
+    data = request.get_json(force=True, silent=False)
     albums = data.get('albums', [])
     if not albums:
         return jsonify(error='No albums provided'), 400
@@ -565,7 +567,7 @@ def _search_cover_image(playlist_name):
 
 @app.route('/search_qobuz_tracks', methods=['POST'])
 def search_qobuz_tracks():
-    data = request.get_json()
+    data = request.get_json(force=True, silent=False)
     tracks = data.get('tracks', [])
     if not tracks:
         return jsonify(error='No tracks provided'), 400
@@ -601,7 +603,7 @@ def search_qobuz_tracks():
 def import_spotify_csv():
     """Accept a pre-parsed CSV track list from the browser (e.g. Exportify export).
     No Spotify API calls needed — the browser already parsed the file."""
-    data = request.get_json()
+    data = request.get_json(force=True, silent=False)
     playlist_name = data.get('playlist_name', 'Imported Playlist').strip() or 'Imported Playlist'
     needs_cover  = data.get('needs_cover', False)   # True when user didn't upload an image
     raw_tracks   = data.get('tracks', [])
@@ -634,7 +636,7 @@ def import_spotify_csv():
 @app.route('/add_spotify_to_queue', methods=['POST'])
 def add_spotify_to_queue():
     global download_running
-    data = request.get_json()
+    data = request.get_json(force=True, silent=False)
     settings = load_settings()
 
     playlist_name = data.get('playlist_name', 'Spotify Playlist')
