@@ -868,20 +868,28 @@ document.getElementById('spotifyAddQueueBtn').addEventListener('click', () => {
         body: JSON.stringify({
             ...fd,
             playlist_name: spotifyPlaylistName,
-            cover_url: spotifyCoverUrl,
+            // cover_url intentionally omitted — each track downloads its own
+            // Qobuz album art into its subfolder automatically
             tracks: selected.map(t => ({
                 qobuz_url: t.qobuz_url,
                 name: t.name,
                 artist: t.artist,
             })),
         })
-    }).then(r => r.json()).then(d => {
+    }).then(r => r.text()).then(rawText => {
+        let d;
+        try { d = JSON.parse(rawText); }
+        catch (_) {
+            btn.disabled = false;
+            setSpotifyStatus(`✗ Server error (HTTP): ${rawText.substring(0, 200)}`);
+            return;
+        }
         btn.disabled = false;
         if (d.status === 'ok') {
             document.getElementById('tab-queue-link').click();
             setSpotifyStatus('');
         } else {
-            setSpotifyStatus('✗ ' + d.message);
+            setSpotifyStatus('✗ ' + (d.message || JSON.stringify(d)));
         }
     }).catch(e => { btn.disabled = false; setSpotifyStatus('✗ Request failed: ' + e); });
 });
