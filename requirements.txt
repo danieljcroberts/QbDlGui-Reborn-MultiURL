@@ -10,3 +10,4 @@ cryptography
 gunicorn>=20.1.0
 gevent>=1.4
 flask_socketio
+duckduckgo_search

@@ -65,29 +65,6 @@
                         <input type="password" class="form-control" id="navidrome_password" value="{{ navidrome_password }}" placeholder="••••••••">
                     </div>
                 </div>
-                <hr class="mt-2 mb-3" style="border-color:#3d4147;">
-                <h6 class="mb-3" style="color:#90a0b7;">Spotify Integration <span class="text-muted small font-weight-normal">(add sp_dc cookie for reliable playlist access)</span></h6>
-                <div class="form-row">
-                    <div class="form-group col-md-12">
-                        <label for="spotify_sp_dc">
-                            Spotify <code>sp_dc</code> Cookie
-                            <span class="text-muted small font-weight-normal">
-                                — Open Spotify in browser → F12 → Application → Cookies → <code>open.spotify.com</code> → copy <code>sp_dc</code> value
-                            </span>
-                        </label>
-                        <input type="password" class="form-control" id="spotify_sp_dc" value="{{ spotify_sp_dc }}" placeholder="AQB3x... (paste your sp_dc cookie value)">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group col-md-6">
-                        <label for="spotify_client_id">Spotify Client ID <span class="text-muted small">(optional — developer app alternative)</span></label>
-                        <input type="text" class="form-control" id="spotify_client_id" value="{{ spotify_client_id }}" placeholder="From developer.spotify.com">
-                    </div>
-                    <div class="form-group col-md-6">
-                        <label for="spotify_client_secret">Spotify Client Secret <span class="text-muted small">(optional)</span></label>
-                        <input type="password" class="form-control" id="spotify_client_secret" value="{{ spotify_client_secret }}" placeholder="••••••••">
-                    </div>
-                </div>
                 <button id="testNavidromeBtn" class="btn btn-outline-info btn-sm mb-3">🔗 Test Navidrome Connection</button>
                 <span id="navidromeTestStatus" class="ml-3 save-status"></span>
                 <br>
@@ -263,43 +240,27 @@
         <div class="tab-pane fade" id="tab-spotify">
             <div class="card mb-3">
                 <div class="card-body">
-                    <!-- Tab switcher: URL vs CSV -->
-                    <ul class="nav nav-tabs mb-3" id="spotifyInputTabs">
-                        <li class="nav-item">
-                            <a class="nav-link active" id="spotifyUrlTab" href="#" onclick="showSpotifyUrlMode(event)">Spotify URL</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" id="spotifyCsvTab" href="#" onclick="showSpotifyCsvMode(event)">Import CSV <span class="badge badge-secondary" style="font-size:0.7em;">Exportify</span></a>
-                        </li>
-                    </ul>
-
-                    <!-- URL mode -->
-                    <div id="spotifyUrlMode">
-                        <label for="spotifyUrlInput">Spotify Playlist URL</label>
-                        <div class="input-group">
-                            <input type="text" class="form-control" id="spotifyUrlInput"
-                                placeholder="https://open.spotify.com/playlist/…">
-                            <div class="input-group-append">
-                                <button class="btn btn-success" id="spotifyLoadBtn">🟢 Load Playlist</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- CSV mode -->
-                    <div id="spotifyCsvMode" style="display:none;">
-                        <div class="text-muted small mb-2">
-                            Export your Spotify playlist via
-                            <strong>exportify.net</strong> → download CSV → import here.
-                            Works with any public or private playlist, no API key needed.
-                        </div>
+                    <h6 class="mb-1" style="color:#90a0b7;">Import Spotify Playlist via CSV</h6>
+                    <p class="text-muted small mb-3">
+                        Export your Spotify playlist at <strong>exportify.net</strong> → download CSV → import below.
+                        Works with any public or private playlist, no API key needed.
+                    </p>
+                    <div class="form-group">
                         <label for="spotifyCsvName">Playlist Name <span class="text-muted small">(used as album name in tags)</span></label>
-                        <input type="text" class="form-control mb-2" id="spotifyCsvName" placeholder="My Playlist">
-                        <label for="spotifyCsvCover">Playlist Cover Image <span class="text-muted small">(optional JPG/PNG)</span></label>
-                        <input type="file" class="form-control-file mb-2" id="spotifyCsvCover" accept="image/*">
-                        <label for="spotifyCsvFile">Exportify CSV File</label>
-                        <input type="file" class="form-control-file mb-2" id="spotifyCsvFile" accept=".csv,text/csv">
-                        <button class="btn btn-success" id="spotifyCsvLoadBtn">📂 Import CSV</button>
+                        <input type="text" class="form-control" id="spotifyCsvName" placeholder="My Playlist">
                     </div>
+                    <div class="form-group">
+                        <label for="spotifyCsvCover">
+                            Playlist Cover Image
+                            <span class="text-muted small">(optional — if left blank, one will be searched automatically)</span>
+                        </label>
+                        <input type="file" class="form-control-file" id="spotifyCsvCover" accept="image/*">
+                    </div>
+                    <div class="form-group">
+                        <label for="spotifyCsvFile">Exportify CSV File</label>
+                        <input type="file" class="form-control-file" id="spotifyCsvFile" accept=".csv,text/csv">
+                    </div>
+                    <button class="btn btn-success" id="spotifyCsvLoadBtn">📂 Import CSV</button>
                 </div>
             </div>
 
@@ -390,9 +351,6 @@ function getFormData() {
         navidrome_url: document.getElementById('navidrome_url').value.trim(),
         navidrome_user: document.getElementById('navidrome_user').value.trim(),
         navidrome_password: document.getElementById('navidrome_password').value,
-        spotify_sp_dc: document.getElementById('spotify_sp_dc').value.trim(),
-        spotify_client_id: document.getElementById('spotify_client_id').value.trim(),
-        spotify_client_secret: document.getElementById('spotify_client_secret').value,
     };
 }
 
@@ -775,68 +733,6 @@ let spotifyPlaylistName = '';
 let spotifyCoverUrl = '';
 let spotifySelectedIds = new Set();
 
-document.getElementById('spotifyLoadBtn').addEventListener('click', doSpotifyLoad);
-document.getElementById('spotifyUrlInput').addEventListener('keydown', e => { if (e.key === 'Enter') doSpotifyLoad(); });
-
-async function doSpotifyLoad() {
-    const url = document.getElementById('spotifyUrlInput').value.trim();
-    if (!url) return;
-    setSpotifyStatus('Fetching playlist from Spotify…');
-    document.getElementById('spotifyPlaylistInfo').style.display = 'none';
-    document.getElementById('spotifyResultsSection').style.display = 'none';
-    document.getElementById('spotifyMatchBtn').style.display = 'none';
-    spotifyTracks = [];
-    spotifySelectedIds.clear();
-
-    // Try to fetch a Spotify token directly from the browser (uses the user's
-    // existing Spotify session cookies, bypassing server-IP blocks)
-    let clientToken = null;
-    try {
-        const tr = await fetch(
-            'https://open.spotify.com/get_access_token?reason=transport&productType=web_player',
-            {credentials: 'include'}
-        );
-        if (tr.ok) {
-            const td = await tr.json();
-            if (td.accessToken && !td.isAnonymous) {
-                clientToken = td.accessToken;
-            }
-        }
-    } catch (e) {
-        // CORS or network error — server will fall back to sp_dc / scrape
-    }
-
-    const payload = {playlist_url: url};
-    if (clientToken) payload.client_token = clientToken;
-
-    try {
-        const r = await fetch('/get_spotify_playlist', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        const data = await r.json();
-        if (data.error) { setSpotifyStatus('✗ ' + data.error); return; }
-        spotifyPlaylistName = data.name;
-        spotifyCoverUrl = data.cover_url || '';
-        spotifyTracks = data.tracks.map(t => ({...t, found: null, qobuz_url: null, qobuz_title: null, qobuz_artist: null}));
-
-        document.getElementById('spotifyPlaylistName').textContent = data.name;
-        document.getElementById('spotifyTrackCount').textContent = `${data.total} tracks`;
-        if (data.cover_url) {
-            document.getElementById('spotifyCoverThumb').src = data.cover_url;
-            document.getElementById('spotifyCoverThumb').style.display = '';
-        } else {
-            document.getElementById('spotifyCoverThumb').style.display = 'none';
-        }
-        document.getElementById('spotifyPlaylistInfo').style.display = '';
-        document.getElementById('spotifyMatchBtn').style.display = '';
-        setSpotifyStatus(`Loaded ${data.total} tracks. Click "Match on Qobuz" to find them.`);
-    } catch (e) {
-        setSpotifyStatus('✗ Request failed: ' + e);
-    }
-}
-
 document.getElementById('spotifyMatchBtn').addEventListener('click', doSpotifyMatch);
 
 function doSpotifyMatch() {
@@ -988,22 +884,6 @@ function setSpotifyStatus(msg) {
     document.getElementById('spotifyStatus').textContent = msg;
 }
 
-// ── Spotify input mode switcher ───────────────────────────────────────────────
-function showSpotifyUrlMode(e) {
-    e.preventDefault();
-    document.getElementById('spotifyUrlMode').style.display = '';
-    document.getElementById('spotifyCsvMode').style.display = 'none';
-    document.getElementById('spotifyUrlTab').classList.add('active');
-    document.getElementById('spotifyCsvTab').classList.remove('active');
-}
-function showSpotifyCsvMode(e) {
-    e.preventDefault();
-    document.getElementById('spotifyUrlMode').style.display = 'none';
-    document.getElementById('spotifyCsvMode').style.display = '';
-    document.getElementById('spotifyUrlTab').classList.remove('active');
-    document.getElementById('spotifyCsvTab').classList.add('active');
-}
-
 // ── CSV import ────────────────────────────────────────────────────────────────
 document.getElementById('spotifyCsvLoadBtn').addEventListener('click', doSpotifyCsvLoad);
 
@@ -1080,6 +960,9 @@ async function doSpotifyCsvLoad() {
         cover_data: coverDataUrl,
         tracks: parsed
     };
+
+    const hasCover = !!coverDataUrl;
+    setSpotifyStatus(hasCover ? 'Uploading playlist…' : 'Uploading playlist — searching for cover art…');
 
     try {
         const r = await fetch('/import_spotify_csv', {
