@@ -954,15 +954,16 @@ async function doSpotifyCsvLoad() {
 
     if (!parsed.length) { setSpotifyStatus('✗ No tracks found in CSV.'); return; }
 
-    // Send to server to store playlist name/cover and get back the tracks
+    // If user uploaded a cover, keep it entirely client-side — never round-trip
+    // a large base64 image through the server.  Only ask the server to search
+    // when no cover was supplied (needs_cover: true).
     const payload = {
         playlist_name: playlistName,
-        cover_data: coverDataUrl,
+        needs_cover: !coverDataUrl,
         tracks: parsed
     };
 
-    const hasCover = !!coverDataUrl;
-    setSpotifyStatus(hasCover ? 'Uploading playlist…' : 'Uploading playlist — searching for cover art…');
+    setSpotifyStatus(coverDataUrl ? 'Uploading playlist…' : 'Uploading playlist — searching for cover art…');
 
     try {
         const r = await fetch('/import_spotify_csv', {
@@ -974,13 +975,14 @@ async function doSpotifyCsvLoad() {
         if (data.error) { setSpotifyStatus('✗ ' + data.error); return; }
 
         spotifyPlaylistName = data.name;
-        spotifyCoverUrl = data.cover_url || '';
+        // Prefer user-uploaded cover; fall back to server-searched cover
+        spotifyCoverUrl = coverDataUrl || data.cover_url || '';
         spotifyTracks = data.tracks.map(t => ({...t, found: null, qobuz_url: null, qobuz_title: null, qobuz_artist: null}));
 
         document.getElementById('spotifyPlaylistName').textContent = data.name;
         document.getElementById('spotifyTrackCount').textContent = `${data.total} tracks`;
-        if (data.cover_url) {
-            document.getElementById('spotifyCoverThumb').src = data.cover_url;
+        if (spotifyCoverUrl) {
+            document.getElementById('spotifyCoverThumb').src = spotifyCoverUrl;
             document.getElementById('spotifyCoverThumb').style.display = '';
         } else {
             document.getElementById('spotifyCoverThumb').style.display = 'none';

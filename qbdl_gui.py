@@ -603,8 +603,8 @@ def import_spotify_csv():
     No Spotify API calls needed — the browser already parsed the file."""
     data = request.get_json()
     playlist_name = data.get('playlist_name', 'Imported Playlist').strip() or 'Imported Playlist'
-    cover_data = data.get('cover_data', '')   # base64 data URI or empty
-    raw_tracks = data.get('tracks', [])
+    needs_cover  = data.get('needs_cover', False)   # True when user didn't upload an image
+    raw_tracks   = data.get('tracks', [])
 
     if not raw_tracks:
         return jsonify(error='No tracks found in CSV'), 400
@@ -620,13 +620,12 @@ def import_spotify_csv():
         if t.get('name', '').strip()
     ]
 
-    # Auto-search for a square cover image if none was uploaded
-    if not cover_data:
-        cover_data = _search_cover_image(playlist_name)
+    # Only run image search when the browser has no local cover to use
+    cover_url = _search_cover_image(playlist_name) if needs_cover else ''
 
     return jsonify(
         name=playlist_name,
-        cover_url=cover_data,
+        cover_url=cover_url,
         tracks=tracks,
         total=len(tracks)
     )
