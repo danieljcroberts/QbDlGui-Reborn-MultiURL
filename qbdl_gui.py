@@ -691,5 +691,408 @@ def add_spotify_to_queue():
     return jsonify(status='ok')
 
 
+# ─── Auto Charts ─────────────────────────────────────────────────────────────
+from apscheduler.schedulers.background import BackgroundScheduler
+
+CHART_SCHEDULES_FILE = os.environ.get('CHART_SCHEDULES_FILE', '/config/chart_schedules.json')
+
+CHART_SOURCES = {
+    'apple': {
+        'name': 'Apple Music',
+        'needs_key': False,
+        'has_country': True,
+        'charts': [
+            {'id': 'most-played', 'name': 'Most Played'},
+            {'id': 'top-songs',   'name': 'Top Songs'},
+        ],
+        'countries': [
+            {'id': 'us', 'name': 'United States'},
+            {'id': 'gb', 'name': 'United Kingdom'},
+            {'id': 'au', 'name': 'Australia'},
+            {'id': 'ca', 'name': 'Canada'},
+            {'id': 'de', 'name': 'Germany'},
+            {'id': 'fr', 'name': 'France'},
+            {'id': 'jp', 'name': 'Japan'},
+        ],
+    },
+    'deezer': {
+        'name': 'Deezer',
+        'needs_key': False,
+        'has_country': False,
+        'charts': [
+            {'id': 'global', 'name': 'Global Top'},
+            {'id': '132',    'name': 'Pop'},
+            {'id': '116',    'name': 'Rap / Hip-Hop'},
+            {'id': '152',    'name': 'Rock'},
+            {'id': '113',    'name': 'Dance / Electronic'},
+            {'id': '165',    'name': 'R&B / Soul'},
+            {'id': '85',     'name': 'Alternative'},
+            {'id': '129',    'name': 'Jazz'},
+            {'id': '84',     'name': 'Country'},
+            {'id': '464',    'name': 'Metal'},
+        ],
+    },
+    'lastfm': {
+        'name': 'Last.fm',
+        'needs_key': True,
+        'has_country': False,
+        'charts': [
+            {'id': 'global',        'name': 'Global Top'},
+            {'id': 'tag:pop',       'name': 'Pop'},
+            {'id': 'tag:hip-hop',   'name': 'Hip-Hop'},
+            {'id': 'tag:rock',      'name': 'Rock'},
+            {'id': 'tag:electronic','name': 'Electronic'},
+            {'id': 'tag:r-n-b',     'name': 'R&B'},
+            {'id': 'tag:country',   'name': 'Country'},
+            {'id': 'tag:jazz',      'name': 'Jazz'},
+            {'id': 'tag:metal',     'name': 'Metal'},
+            {'id': 'tag:indie',     'name': 'Indie'},
+            {'id': 'tag:classical', 'name': 'Classical'},
+        ],
+    },
+}
+
+
+def _fetch_apple_chart(chart_id, country, limit):
+    url = f'https://rss.applemarketingtools.com/api/v2/{country}/music/{chart_id}/{limit}/songs.json'
+    r = req_lib.get(url, timeout=15)
+    r.raise_for_status()
+    return [{'name': i.get('name', ''), 'artist': i.get('artistName', '')}
+            for i in r.json().get('feed', {}).get('results', [])]
+
+
+def _fetch_deezer_chart(chart_id, limit):
+    path = '0' if chart_id == 'global' else chart_id
+    r = req_lib.get(f'https://api.deezer.com/chart/{path}/tracks?limit={limit}', timeout=15)
+    r.raise_for_status()
+    return [{'name': i.get('title', ''), 'artist': (i.get('artist') or {}).get('name', '')}
+            for i in r.json().get('data', [])]
+
+
+def _fetch_lastfm_chart(chart_id, api_key, limit):
+    if not api_key:
+        raise ValueError('Last.fm API key is required')
+    params = {'format': 'json', 'api_key': api_key, 'limit': limit}
+    if chart_id.startswith('tag:'):
+        params.update({'method': 'tag.getTopTracks', 'tag': chart_id[4:]})
+    else:
+        params['method'] = 'chart.getTopTracks'
+    r = req_lib.get('https://ws.audioscrobbler.com/2.0/', params=params, timeout=15)
+    r.raise_for_status()
+    data = r.json()
+    if 'error' in data:
+        raise ValueError(f"Last.fm: {data.get('message', data['error'])}")
+    raw = (data.get('tracks') or data.get('toptracks') or {}).get('track', [])
+    return [
+        {
+            'name': t.get('name', ''),
+            'artist': t['artist'].get('name', '') if isinstance(t.get('artist'), dict) else t.get('artist', ''),
+        }
+        for t in raw
+    ]
+
+
+def _fetch_chart_tracks(sched):
+    src, chart_id, limit = sched['source'], sched['chart'], int(sched.get('limit', 50))
+    if src == 'apple':
+        return _fetch_apple_chart(chart_id, sched.get('country', 'us'), limit)
+    if src == 'deezer':
+        return _fetch_deezer_chart(chart_id, limit)
+    if src == 'lastfm':
+        return _fetch_lastfm_chart(chart_id, sched.get('api_key', ''), limit)
+    raise ValueError(f'Unknown chart source: {src}')
+
+
+def _load_chart_schedules():
+    try:
+        if os.path.exists(CHART_SCHEDULES_FILE):
+            with open(CHART_SCHEDULES_FILE) as f:
+                return json.load(f)
+    except Exception as e:
+        logging.warning(f'Could not load chart schedules: {e}')
+    return []
+
+
+def _save_chart_schedules(schedules):
+    try:
+        os.makedirs(os.path.dirname(CHART_SCHEDULES_FILE), exist_ok=True)
+        with open(CHART_SCHEDULES_FILE, 'w') as f:
+            json.dump(schedules, f, indent=2)
+    except Exception as e:
+        logging.error(f'Could not save chart schedules: {e}')
+
+
+def _run_chart_job(schedule_id):
+    global download_running
+    schedules = _load_chart_schedules()
+    sched = next((s for s in schedules if s['id'] == schedule_id), None)
+    if not sched:
+        logging.warning(f'Chart schedule {schedule_id} not found')
+        return
+
+    settings = load_settings()
+    email = settings.get('email', '')
+    password = settings.get('password', '')
+    download_location = settings.get('download_location', '/downloads')
+    quality = int(settings.get('quality', 7))
+    if not email or not password:
+        logging.error(f'Chart job {schedule_id}: Qobuz credentials not configured')
+        return
+
+    from datetime import datetime
+    from pathvalidate import sanitize_filename
+    week_str = datetime.now().strftime('%Y-W%V')
+    chart_name = f"{sched['name']} {week_str}"
+
+    # Delete previous week's folder
+    last_folder = sched.get('last_folder')
+    if last_folder and os.path.exists(last_folder):
+        import shutil
+        try:
+            shutil.rmtree(last_folder)
+            logging.info(f'Deleted old chart folder: {last_folder}')
+        except Exception as e:
+            logging.warning(f'Could not delete {last_folder}: {e}')
+
+    # Fetch track list from source
+    try:
+        raw_tracks = _fetch_chart_tracks(sched)
+    except Exception as e:
+        logging.error(f'Chart job {schedule_id}: fetch failed: {e}')
+        return
+
+    if not raw_tracks:
+        logging.warning(f'Chart job {schedule_id}: no tracks returned')
+        return
+
+    # Match each track on Qobuz
+    qobuz, err = get_qobuz_client()
+    if err:
+        logging.error(f'Chart job {schedule_id}: Qobuz error: {err}')
+        return
+
+    matched = []
+    for i, t in enumerate(raw_tracks):
+        query = f"{t['artist']} {t['name']}".strip()
+        try:
+            res = qobuz.client.search_tracks(query, 1)
+            items = res.get('tracks', {}).get('items', [])
+            if items:
+                matched.append({
+                    'qobuz_url': f"{QOBUZ_WEB}track/{items[0]['id']}",
+                    'name': t['name'],
+                    'artist': t['artist'],
+                    'position': i + 1,
+                })
+        except Exception as e:
+            logging.warning(f'Chart job: Qobuz search failed for "{query}": {e}')
+
+    if not matched:
+        logging.warning(f'Chart job {schedule_id}: no tracks matched on Qobuz')
+        return
+
+    playlist_dir = os.path.join(download_location, 'Charts', sanitize_filename(chart_name))
+
+    # Persist last_run and last_folder so next run knows what to delete
+    for s in schedules:
+        if s['id'] == schedule_id:
+            s['last_run'] = datetime.now().isoformat()
+            s['last_folder'] = playlist_dir
+    _save_chart_schedules(schedules)
+
+    total = len(matched)
+    with queue_lock:
+        for t in matched:
+            download_queue.append({
+                'id': str(uuid.uuid4()),
+                'url': t['qobuz_url'],
+                'label': f"[Chart] {t['artist']} — {t['name']}",
+                'status': 'queued',
+                'position': None,
+                'is_spotify_track': True,
+                'playlist_name': chart_name,
+                'cover_url': '',
+                'playlist_dir': playlist_dir,
+                'track_number': t['position'],
+                'total_tracks': total,
+            })
+        _recalc_positions()
+
+    emit_queue_state()
+
+    if not download_running:
+        download_running = True
+        threading.Thread(
+            target=run_queue,
+            args=(email, password, download_location, quality,
+                  settings.get('navidrome_url', ''),
+                  settings.get('navidrome_user', ''),
+                  settings.get('navidrome_password', '')),
+            daemon=True,
+        ).start()
+
+    logging.info(f'Chart job {schedule_id}: queued {total} tracks for "{chart_name}"')
+
+
+# ── APScheduler: load saved schedules on startup ─────────────────────────────
+_scheduler = BackgroundScheduler(daemon=True)
+
+
+def _init_scheduler():
+    for sched in _load_chart_schedules():
+        if sched.get('enabled', True):
+            try:
+                _scheduler.add_job(
+                    _run_chart_job, 'cron',
+                    id=sched['id'], args=[sched['id']],
+                    day_of_week=sched.get('day_of_week', 'mon'),
+                    hour=sched.get('hour', 3),
+                    minute=0,
+                    replace_existing=True,
+                    misfire_grace_time=3600,
+                    coalesce=True,
+                )
+            except Exception as e:
+                logging.warning(f'Could not register chart job {sched["id"]}: {e}')
+    _scheduler.start()
+
+
+_init_scheduler()
+
+
+@app.route('/chart/sources')
+def chart_sources_route():
+    return jsonify(sources=CHART_SOURCES)
+
+
+@app.route('/chart/preview', methods=['POST'])
+def chart_preview():
+    """Fetch raw track list from chart source (Qobuz matching done client-side)."""
+    data = request.get_json(force=True, silent=False)
+    sched = {
+        'source': data.get('source', 'apple'),
+        'chart': data.get('chart', 'most-played'),
+        'limit': min(int(data.get('limit', 50)), 100),
+        'country': data.get('country', 'us'),
+        'api_key': data.get('api_key', ''),
+    }
+    try:
+        tracks = _fetch_chart_tracks(sched)
+    except Exception as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(tracks=[{'name': t['name'], 'artist': t['artist']} for t in tracks])
+
+
+@app.route('/chart/schedule/list')
+def chart_schedule_list():
+    return jsonify(schedules=_load_chart_schedules())
+
+
+@app.route('/chart/schedule/add', methods=['POST'])
+def chart_schedule_add():
+    data = request.get_json(force=True, silent=False)
+    schedules = _load_chart_schedules()
+    sid = str(uuid.uuid4())
+    sched = {
+        'id': sid,
+        'name': (data.get('name', 'Chart') or 'Chart').strip(),
+        'source': data.get('source', 'apple'),
+        'chart': data.get('chart', 'most-played'),
+        'country': data.get('country', 'us'),
+        'limit': min(int(data.get('limit', 50)), 100),
+        'api_key': data.get('api_key', ''),
+        'day_of_week': data.get('day_of_week', 'mon'),
+        'hour': int(data.get('hour', 3)),
+        'enabled': True,
+        'last_run': None,
+        'last_folder': None,
+    }
+    schedules.append(sched)
+    _save_chart_schedules(schedules)
+    try:
+        _scheduler.add_job(
+            _run_chart_job, 'cron',
+            id=sid, args=[sid],
+            day_of_week=sched['day_of_week'],
+            hour=sched['hour'], minute=0,
+            replace_existing=True,
+            misfire_grace_time=3600,
+            coalesce=True,
+        )
+    except Exception as e:
+        logging.warning(f'Could not register APScheduler job {sid}: {e}')
+    return jsonify(status='ok', schedule=sched)
+
+
+@app.route('/chart/schedule/<sid>', methods=['DELETE'])
+def chart_schedule_delete(sid):
+    schedules = [s for s in _load_chart_schedules() if s['id'] != sid]
+    _save_chart_schedules(schedules)
+    try:
+        _scheduler.remove_job(sid)
+    except Exception:
+        pass
+    return jsonify(status='ok')
+
+
+@app.route('/chart/schedule/<sid>/run', methods=['POST'])
+def chart_schedule_run(sid):
+    threading.Thread(target=_run_chart_job, args=(sid,), daemon=True).start()
+    return jsonify(status='ok')
+
+
+@app.route('/chart/add_to_queue', methods=['POST'])
+def chart_add_to_queue():
+    global download_running
+    data = request.get_json(force=True, silent=False)
+    settings = load_settings()
+    from pathvalidate import sanitize_filename
+    from datetime import datetime
+
+    chart_name = data.get('chart_name', 'Chart')
+    tracks = data.get('tracks', [])
+    download_location = data.get('download_location') or settings.get('download_location', '/downloads')
+    email = data.get('email') or settings.get('email', '')
+    password = data.get('password') or settings.get('password', '')
+    quality = int(data.get('quality') or settings.get('quality', 7))
+
+    week_str = datetime.now().strftime('%Y-W%V')
+    folder_name = f"{chart_name} {week_str}"
+    playlist_dir = os.path.join(download_location, 'Charts', sanitize_filename(folder_name))
+
+    total = len(tracks)
+    with queue_lock:
+        for i, t in enumerate(tracks, 1):
+            download_queue.append({
+                'id': str(uuid.uuid4()),
+                'url': t['qobuz_url'],
+                'label': f"[Chart] {t.get('artist', '')} — {t.get('name', t['qobuz_url'])}",
+                'status': 'queued',
+                'position': None,
+                'is_spotify_track': True,
+                'playlist_name': folder_name,
+                'cover_url': '',
+                'playlist_dir': playlist_dir,
+                'track_number': i,
+                'total_tracks': total,
+            })
+        _recalc_positions()
+
+    emit_queue_state()
+
+    if not download_running:
+        download_running = True
+        threading.Thread(
+            target=run_queue,
+            args=(email, password, download_location, quality,
+                  settings.get('navidrome_url', ''),
+                  settings.get('navidrome_user', ''),
+                  settings.get('navidrome_password', '')),
+            daemon=True,
+        ).start()
+
+    return jsonify(status='ok')
+
+
 if __name__ == "__main__":
     socketio.run(app)

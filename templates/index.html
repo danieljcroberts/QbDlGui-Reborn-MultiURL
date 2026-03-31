@@ -88,6 +88,9 @@
         <li class="nav-item">
             <a class="nav-link" id="tab-spotify-link" data-toggle="tab" href="#tab-spotify">🟢 Spotify Playlist</a>
         </li>
+        <li class="nav-item">
+            <a class="nav-link" id="tab-charts-link" data-toggle="tab" href="#tab-charts">📊 Auto Charts</a>
+        </li>
     </ul>
 
     <div class="tab-content">
@@ -302,6 +305,117 @@
                 </table>
             </div>
         </div>
+
+        <!-- ── Auto Charts Tab ── -->
+        <div class="tab-pane fade" id="tab-charts">
+
+            <!-- Configure -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h6 class="mb-3" style="color:#90a0b7;">Configure Chart</h6>
+                    <div class="form-row">
+                        <div class="form-group col-md-3">
+                            <label>Source</label>
+                            <select class="form-control" id="chartSource">
+                                <option value="apple">Apple Music</option>
+                                <option value="deezer">Deezer</option>
+                                <option value="lastfm">Last.fm</option>
+                            </select>
+                        </div>
+                        <div class="form-group col-md-3">
+                            <label>Chart / Genre</label>
+                            <select class="form-control" id="chartType"></select>
+                        </div>
+                        <div class="form-group col-md-2" id="chartCountryGroup">
+                            <label>Country</label>
+                            <select class="form-control" id="chartCountry">
+                                <option value="us">United States</option>
+                                <option value="gb">United Kingdom</option>
+                                <option value="au">Australia</option>
+                                <option value="ca">Canada</option>
+                                <option value="de">Germany</option>
+                                <option value="fr">France</option>
+                                <option value="jp">Japan</option>
+                            </select>
+                        </div>
+                        <div class="form-group col-md-2">
+                            <label>Tracks</label>
+                            <input type="number" class="form-control" id="chartLimit" value="50" min="10" max="100">
+                        </div>
+                    </div>
+                    <div class="form-row" id="chartApiKeyRow" style="display:none;">
+                        <div class="form-group col-md-6">
+                            <label>
+                                Last.fm API Key
+                                <span class="text-muted small">(<a href="https://www.last.fm/api/account/create" target="_blank" style="color:#5BC8F5;">get one free</a>)</span>
+                            </label>
+                            <input type="text" class="form-control" id="chartApiKey" placeholder="your Last.fm API key">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-md-5">
+                            <label>Chart Name <span class="text-muted small">(used as folder name)</span></label>
+                            <input type="text" class="form-control" id="chartName" placeholder="e.g. UK Top 50">
+                        </div>
+                        <div class="form-group col-md-2">
+                            <label>Schedule Day</label>
+                            <select class="form-control" id="chartDay">
+                                <option value="mon">Monday</option>
+                                <option value="tue">Tuesday</option>
+                                <option value="wed">Wednesday</option>
+                                <option value="thu">Thursday</option>
+                                <option value="fri">Friday</option>
+                                <option value="sat">Saturday</option>
+                                <option value="sun">Sunday</option>
+                            </select>
+                        </div>
+                        <div class="form-group col-md-2">
+                            <label>Time (UTC)</label>
+                            <select class="form-control" id="chartHour"></select>
+                        </div>
+                    </div>
+                    <button class="btn btn-info mr-2" id="chartPreviewBtn">🔍 Preview Tracks</button>
+                    <button class="btn btn-success" id="chartSaveScheduleBtn">📅 Save Weekly Schedule</button>
+                </div>
+            </div>
+
+            <div id="chartStatus" class="text-muted small mb-2"></div>
+
+            <!-- Preview results -->
+            <div id="chartPreviewSection" style="display:none;" class="card mb-3">
+                <div class="card-body p-2">
+                    <div class="d-flex align-items-center mb-2">
+                        <div class="custom-control custom-checkbox mr-3">
+                            <input type="checkbox" class="custom-control-input" id="chartSelectAll">
+                            <label class="custom-control-label small" for="chartSelectAll">Select all found</label>
+                        </div>
+                        <button class="btn btn-primary btn-sm" id="chartDownloadNowBtn" disabled>
+                            ▶ Download Now (<span id="chartSelectedCount">0</span>)
+                        </button>
+                        <span id="chartMatchStatus" class="ml-3 text-muted small"></span>
+                    </div>
+                    <table class="table table-dark table-sm release-table mb-0" id="chartTrackTable">
+                        <thead>
+                            <tr>
+                                <th style="width:36px"></th>
+                                <th style="width:40px">#</th>
+                                <th>Track</th>
+                                <th>Artist</th>
+                                <th style="width:110px">Qobuz Match</th>
+                            </tr>
+                        </thead>
+                        <tbody id="chartTrackBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Saved schedules -->
+            <h6 style="color:#90a0b7;">Saved Weekly Schedules</h6>
+            <div id="chartSchedulesList" class="mb-3">
+                <div class="text-muted small" id="chartSchedulesEmpty">No schedules configured yet.</div>
+            </div>
+
+        </div><!-- /tab-charts -->
 
     </div><!-- /tab-content -->
 
@@ -1014,6 +1128,293 @@ async function doSpotifyCsvLoad() {
         setSpotifyStatus('✗ Request failed: ' + e);
     }
 }
+
+// ── Auto Charts ──────────────────────────────────────────────────────────────
+let chartSources = {};
+let chartTracks = [];
+let chartSelectedIdxs = new Set();
+
+// Fill hour dropdown
+(function() {
+    const sel = document.getElementById('chartHour');
+    for (let h = 0; h < 24; h++) {
+        const o = document.createElement('option');
+        o.value = h;
+        o.textContent = String(h).padStart(2, '0') + ':00';
+        if (h === 3) o.selected = true;
+        sel.appendChild(o);
+    }
+})();
+
+// Load source config from server
+fetch('/chart/sources').then(r => r.json()).then(data => {
+    chartSources = data.sources;
+    updateChartTypeOptions();
+}).catch(e => console.warn('Could not load chart sources:', e));
+
+document.getElementById('chartSource').addEventListener('change', updateChartTypeOptions);
+
+function updateChartTypeOptions() {
+    const src = document.getElementById('chartSource').value;
+    const cfg = chartSources[src] || {};
+    const sel = document.getElementById('chartType');
+    sel.innerHTML = '';
+    (cfg.charts || []).forEach(c => {
+        const o = document.createElement('option');
+        o.value = c.id; o.textContent = c.name;
+        sel.appendChild(o);
+    });
+    document.getElementById('chartCountryGroup').style.display = cfg.has_country ? '' : 'none';
+    document.getElementById('chartApiKeyRow').style.display = cfg.needs_key ? '' : 'none';
+    autoChartName();
+}
+
+document.getElementById('chartType').addEventListener('change', autoChartName);
+document.getElementById('chartCountry').addEventListener('change', autoChartName);
+
+function autoChartName() {
+    const src = document.getElementById('chartSource').value;
+    const cfg = chartSources[src] || {};
+    const typeSel = document.getElementById('chartType');
+    const typeLabel = typeSel.options[typeSel.selectedIndex]?.text || '';
+    let name;
+    if (src === 'apple') {
+        const ctrySel = document.getElementById('chartCountry');
+        const ctryLabel = ctrySel.options[ctrySel.selectedIndex]?.text || '';
+        name = `${ctryLabel} - ${typeLabel}`;
+    } else {
+        name = `${cfg.name || src} - ${typeLabel}`;
+    }
+    document.getElementById('chartName').value = name;
+}
+
+document.getElementById('chartPreviewBtn').addEventListener('click', doChartPreview);
+
+async function doChartPreview() {
+    const src    = document.getElementById('chartSource').value;
+    const chart  = document.getElementById('chartType').value;
+    const country= document.getElementById('chartCountry').value;
+    const limit  = parseInt(document.getElementById('chartLimit').value) || 50;
+    const apiKey = document.getElementById('chartApiKey').value.trim();
+
+    setChartStatus('Fetching tracks from source…');
+    document.getElementById('chartPreviewSection').style.display = 'none';
+    document.getElementById('chartMatchStatus').textContent = '';
+    chartTracks = []; chartSelectedIdxs.clear();
+
+    let rawText;
+    try {
+        const r = await fetch('/chart/preview', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ source: src, chart, country, limit, api_key: apiKey })
+        });
+        rawText = await r.text();
+    } catch (e) { setChartStatus('✗ Request failed: ' + e); return; }
+
+    let data;
+    try { data = JSON.parse(rawText); }
+    catch (_) { setChartStatus('✗ Server error: ' + rawText.substring(0, 200)); return; }
+
+    if (data.error) { setChartStatus('✗ ' + data.error); return; }
+
+    chartTracks = data.tracks.map(t => ({...t, found: null, qobuz_url: null, qobuz_title: null, qobuz_artist: null}));
+    if (!chartTracks.length) { setChartStatus('No tracks returned from source.'); return; }
+
+    setChartStatus(`Fetched ${chartTracks.length} tracks — searching Qobuz…`);
+    document.getElementById('chartPreviewSection').style.display = '';
+    renderChartTracks();
+
+    // Match on Qobuz in batches (reuses /search_qobuz_tracks)
+    const batchSize = 20;
+    let offset = 0;
+    for (let i = 0; i < chartTracks.length; i += batchSize) {
+        const batch = chartTracks.slice(i, i + batchSize).map(t => ({name: t.name, artist: t.artist}));
+        setChartStatus(`Searching Qobuz… (${Math.min(offset + batchSize, chartTracks.length)}/${chartTracks.length})`);
+        try {
+            const r = await fetch('/search_qobuz_tracks', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({tracks: batch})
+            });
+            const bd = await r.json();
+            if (bd.error) { setChartStatus('✗ Qobuz error: ' + bd.error); return; }
+            bd.results.forEach((res, j) => {
+                const t = chartTracks[offset + j];
+                t.found = res.found; t.qobuz_url = res.qobuz_url || null;
+                t.qobuz_title = res.qobuz_title || null; t.qobuz_artist = res.qobuz_artist || null;
+            });
+            offset += batchSize;
+        } catch (e) { setChartStatus('✗ Qobuz search failed: ' + e); return; }
+    }
+
+    const found = chartTracks.filter(t => t.found).length;
+    setChartStatus(`Matched ${found} of ${chartTracks.length} tracks on Qobuz.`);
+    document.getElementById('chartMatchStatus').textContent = `${found}/${chartTracks.length} matched`;
+    chartSelectedIdxs.clear();
+    chartTracks.forEach((t, i) => { if (t.found) chartSelectedIdxs.add(i); });
+    renderChartTracks(); updateChartSelectedCount(); syncChartSelectAll();
+}
+
+function renderChartTracks() {
+    const body = document.getElementById('chartTrackBody');
+    body.innerHTML = '';
+    chartTracks.forEach((t, i) => {
+        const checked = chartSelectedIdxs.has(i) ? 'checked' : '';
+        const disabled = !t.found ? 'disabled' : '';
+        let badge;
+        if (t.found === null)  badge = '<span class="badge badge-secondary">—</span>';
+        else if (t.found)      badge = `<span class="badge badge-success" title="${esc(t.qobuz_artist)} — ${esc(t.qobuz_title)}">✓ Found</span>`;
+        else                   badge = '<span class="badge badge-danger">✗ Not found</span>';
+        const tr = document.createElement('tr');
+        tr.className = chartSelectedIdxs.has(i) ? 'row-selected' : (t.found === false ? 'row-failed' : '');
+        tr.innerHTML = `<td><input type="checkbox" class="chart-track-cb" data-idx="${i}" ${checked} ${disabled}></td>
+            <td class="text-muted">${i + 1}</td>
+            <td class="release-title">${esc(t.name)}</td>
+            <td class="text-muted">${esc(t.artist)}</td>
+            <td>${badge}</td>`;
+        body.appendChild(tr);
+    });
+    body.querySelectorAll('.chart-track-cb').forEach(cb => {
+        cb.addEventListener('change', function() {
+            const idx = parseInt(this.dataset.idx);
+            if (this.checked) chartSelectedIdxs.add(idx); else chartSelectedIdxs.delete(idx);
+            this.closest('tr').className = this.checked ? 'row-selected' : '';
+            updateChartSelectedCount(); syncChartSelectAll();
+        });
+    });
+}
+
+function updateChartSelectedCount() {
+    document.getElementById('chartSelectedCount').textContent = chartSelectedIdxs.size;
+    document.getElementById('chartDownloadNowBtn').disabled = chartSelectedIdxs.size === 0;
+}
+
+function syncChartSelectAll() {
+    const all = document.querySelectorAll('.chart-track-cb:not(:disabled)');
+    const checked = [...all].filter(c => c.checked).length;
+    const sa = document.getElementById('chartSelectAll');
+    sa.indeterminate = checked > 0 && checked < all.length;
+    sa.checked = all.length > 0 && checked === all.length;
+}
+
+document.getElementById('chartSelectAll').addEventListener('change', function() {
+    chartTracks.forEach((t, i) => {
+        if (!t.found) return;
+        if (this.checked) chartSelectedIdxs.add(i); else chartSelectedIdxs.delete(i);
+    });
+    renderChartTracks(); updateChartSelectedCount();
+});
+
+document.getElementById('chartDownloadNowBtn').addEventListener('click', async () => {
+    const selected = [...chartSelectedIdxs].sort((a,b)=>a-b).map(i => chartTracks[i]).filter(t => t.qobuz_url);
+    if (!selected.length) return;
+    const btn = document.getElementById('chartDownloadNowBtn');
+    btn.disabled = true;
+    setChartStatus(`Adding ${selected.length} tracks to queue…`);
+    const chartName = document.getElementById('chartName').value.trim() || 'Chart';
+    let rawText;
+    try {
+        const r = await fetch('/chart/add_to_queue', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                ...getFormData(), chart_name: chartName,
+                tracks: selected.map(t => ({qobuz_url: t.qobuz_url, name: t.name, artist: t.artist})),
+            })
+        });
+        rawText = await r.text();
+    } catch (e) { btn.disabled = false; setChartStatus('✗ Request failed: ' + e); return; }
+    let d;
+    try { d = JSON.parse(rawText); }
+    catch (_) { btn.disabled = false; setChartStatus('✗ Server error: ' + rawText.substring(0, 200)); return; }
+    btn.disabled = false;
+    if (d.status === 'ok') { document.getElementById('tab-queue-link').click(); setChartStatus(''); }
+    else setChartStatus('✗ ' + (d.message || JSON.stringify(d)));
+});
+
+document.getElementById('chartSaveScheduleBtn').addEventListener('click', async () => {
+    const name = document.getElementById('chartName').value.trim();
+    if (!name) { setChartStatus('Please enter a chart name.'); return; }
+    const payload = {
+        name,
+        source:      document.getElementById('chartSource').value,
+        chart:       document.getElementById('chartType').value,
+        country:     document.getElementById('chartCountry').value,
+        limit:       parseInt(document.getElementById('chartLimit').value) || 50,
+        api_key:     document.getElementById('chartApiKey').value.trim(),
+        day_of_week: document.getElementById('chartDay').value,
+        hour:        parseInt(document.getElementById('chartHour').value),
+    };
+    let rawText;
+    try {
+        const r = await fetch('/chart/schedule/add', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        rawText = await r.text();
+    } catch (e) { setChartStatus('✗ ' + e); return; }
+    let d;
+    try { d = JSON.parse(rawText); }
+    catch (_) { setChartStatus('✗ Server error: ' + rawText.substring(0, 200)); return; }
+    if (d.status === 'ok') {
+        setChartStatus(`✓ Schedule "${name}" saved — runs every ${document.getElementById('chartDay').options[document.getElementById('chartDay').selectedIndex].text}.`);
+        loadChartSchedules();
+    } else setChartStatus('✗ ' + (d.message || JSON.stringify(d)));
+});
+
+function setChartStatus(msg) { document.getElementById('chartStatus').textContent = msg; }
+
+function loadChartSchedules() {
+    fetch('/chart/schedule/list').then(r => r.json()).then(data => {
+        renderChartSchedules(data.schedules || []);
+    }).catch(e => console.warn('Could not load chart schedules:', e));
+}
+
+const DAY_NAMES = {mon:'Monday',tue:'Tuesday',wed:'Wednesday',thu:'Thursday',fri:'Friday',sat:'Saturday',sun:'Sunday'};
+const SRC_NAMES = {apple:'Apple Music',deezer:'Deezer',lastfm:'Last.fm'};
+
+function renderChartSchedules(schedules) {
+    const container = document.getElementById('chartSchedulesList');
+    const empty = document.getElementById('chartSchedulesEmpty');
+    container.querySelectorAll('.chart-sched-card').forEach(el => el.remove());
+    if (!schedules.length) { empty.style.display = ''; return; }
+    empty.style.display = 'none';
+    schedules.forEach(s => {
+        const lastRun = s.last_run ? new Date(s.last_run).toLocaleDateString() : 'Never';
+        const div = document.createElement('div');
+        div.className = 'chart-sched-card d-flex align-items-center justify-content-between p-2 mb-2 rounded';
+        div.style.background = '#2a2d34';
+        div.innerHTML = `
+            <div>
+                <strong>${esc(s.name)}</strong>
+                <span class="text-muted small ml-2">${esc(SRC_NAMES[s.source] || s.source)} &middot; ${DAY_NAMES[s.day_of_week] || s.day_of_week}s at ${String(s.hour).padStart(2,'0')}:00 UTC &middot; ${s.limit} tracks</span>
+                <br><span class="text-muted small">Last run: ${lastRun}</span>
+            </div>
+            <div class="d-flex">
+                <button class="btn btn-outline-primary btn-sm mr-2" onclick="runChartSchedule('${s.id}')">▶ Run Now</button>
+                <button class="btn btn-outline-danger btn-sm" onclick="deleteChartSchedule('${s.id}')">🗑</button>
+            </div>`;
+        container.appendChild(div);
+    });
+}
+
+function runChartSchedule(id) {
+    setChartStatus('Chart job started…');
+    fetch(`/chart/schedule/${id}/run`, {method: 'POST'})
+        .then(r => r.json())
+        .then(d => {
+            if (d.status === 'ok') { setChartStatus('✓ Running — check the Download Queue tab.'); document.getElementById('tab-queue-link').click(); }
+        }).catch(e => setChartStatus('✗ ' + e));
+}
+
+function deleteChartSchedule(id) {
+    if (!confirm('Delete this schedule?')) return;
+    fetch(`/chart/schedule/${id}`, {method: 'DELETE'})
+        .then(r => r.json())
+        .then(() => { loadChartSchedules(); setChartStatus('Schedule deleted.'); })
+        .catch(e => setChartStatus('✗ ' + e));
+}
+
+document.getElementById('tab-charts-link').addEventListener('click', loadChartSchedules);
+loadChartSchedules();
 
 function parseCsvRow(line) {
     // RFC 4180-compatible CSV parser
