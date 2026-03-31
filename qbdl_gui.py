@@ -151,6 +151,7 @@ def _download_spotify_track(qobuz, item, download_location, quality):
         downgrade_quality=True,
         playlist_dir=playlist_dir,
         playlist_track_number=track_number,
+        custom_cover_path=item.get('cover_path') or None,
         metadata_overrides={
             'albumartist': 'Various Artists',
             'album': playlist_name,
@@ -637,6 +638,20 @@ def import_spotify_csv():
     )
 
 
+@app.route('/upload_cover', methods=['POST'])
+def upload_cover():
+    """Accept a playlist cover image as a binary file upload (avoids base64 JSON bloat).
+    Saves it to /tmp so the downloader can copy it into each track subfolder."""
+    f = request.files.get('cover')
+    if not f:
+        return jsonify(error='No file provided'), 400
+    cover_dir = '/tmp/playlist_covers'
+    os.makedirs(cover_dir, exist_ok=True)
+    cover_path = os.path.join(cover_dir, f'{uuid.uuid4()}.jpg')
+    f.save(cover_path)
+    return jsonify(cover_path=cover_path)
+
+
 @app.route('/add_spotify_to_queue', methods=['POST'])
 def add_spotify_to_queue():
     global download_running
@@ -644,7 +659,7 @@ def add_spotify_to_queue():
     settings = load_settings()
 
     playlist_name = data.get('playlist_name', 'Spotify Playlist')
-    cover_url = data.get('cover_url', '')
+    cover_path = data.get('cover_path', '')   # server-side file path from /upload_cover
     tracks = data.get('tracks', [])
     download_location = data.get('download_location') or settings.get('download_location', '/downloads')
     email = data.get('email') or settings.get('email', '')
@@ -667,7 +682,7 @@ def add_spotify_to_queue():
                 'position': None,
                 'is_spotify_track': True,
                 'playlist_name': playlist_name,
-                'cover_url': cover_url,
+                'cover_path': cover_path,
                 'playlist_dir': playlist_dir,
                 'track_number': i,
                 'total_tracks': total_tracks,

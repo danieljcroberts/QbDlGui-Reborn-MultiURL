@@ -46,6 +46,7 @@ class Download:
         playlist_dir=None,
         playlist_track_number=None,
         metadata_overrides=None,
+        custom_cover_path=None,
     ):
         self.client = client
         self.item_id = item_id
@@ -61,6 +62,7 @@ class Download:
         self.playlist_dir = playlist_dir
         self.playlist_track_number = playlist_track_number
         self.metadata_overrides = metadata_overrides or {}
+        self.custom_cover_path = custom_cover_path
 
     def download_id_by_type(self, track=True):
         if not track:
@@ -186,7 +188,12 @@ class Download:
                 sanitized_title = sanitize_filepath(folder_format.format(**subfolder_attr))
                 dirn = os.path.join(self.playlist_dir, sanitized_title)
                 os.makedirs(dirn, exist_ok=True)
-                if not self.no_cover:
+                if self.custom_cover_path and os.path.isfile(self.custom_cover_path):
+                    # User supplied a playlist cover — copy it as cover.jpg so the
+                    # tagger embeds it instead of the individual Qobuz album art.
+                    import shutil as _shutil
+                    _shutil.copy2(self.custom_cover_path, os.path.join(dirn, "cover.jpg"))
+                elif not self.no_cover:
                     _get_extra(
                         meta["album"]["image"]["large"],
                         dirn,

@@ -967,45 +967,67 @@ document.getElementById('spotifySelectAll').addEventListener('change', function(
     updateSpotifySelectedCount();
 });
 
-document.getElementById('spotifyAddQueueBtn').addEventListener('click', () => {
+document.getElementById('spotifyAddQueueBtn').addEventListener('click', async () => {
     const selected = [...spotifySelectedIds].map(i => spotifyTracks[i]).filter(t => t.qobuz_url);
     if (!selected.length) return;
 
     const btn = document.getElementById('spotifyAddQueueBtn');
     btn.disabled = true;
-    setSpotifyStatus(`Adding ${selected.length} track(s) to queue…`);
 
+    // Upload cover to server as a binary file upload (avoids base64 JSON bloat)
+    let serverCoverPath = '';
+    if (spotifyCoverUrl) {
+        setSpotifyStatus('Uploading cover image…');
+        try {
+            const blob = dataUrlToBlob(spotifyCoverUrl);
+            const formData = new FormData();
+            formData.append('cover', blob, 'cover.jpg');
+            const r = await fetch('/upload_cover', { method: 'POST', body: formData });
+            const d = await r.json();
+            serverCoverPath = d.cover_path || '';
+        } catch (e) {
+            console.warn('Cover upload failed, continuing without cover:', e);
+        }
+    }
+
+    setSpotifyStatus(`Adding ${selected.length} track(s) to queue…`);
     const fd = getFormData();
-    fetch('/add_spotify_to_queue', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            ...fd,
-            playlist_name: spotifyPlaylistName,
-            // cover_url intentionally omitted — each track downloads its own
-            // Qobuz album art into its subfolder automatically
-            tracks: selected.map(t => ({
-                qobuz_url: t.qobuz_url,
-                name: t.name,
-                artist: t.artist,
-            })),
-        })
-    }).then(r => r.text()).then(rawText => {
-        let d;
-        try { d = JSON.parse(rawText); }
-        catch (_) {
-            btn.disabled = false;
-            setSpotifyStatus(`✗ Server error (HTTP): ${rawText.substring(0, 200)}`);
-            return;
-        }
+    let rawText;
+    try {
+        const r = await fetch('/add_spotify_to_queue', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                ...fd,
+                playlist_name: spotifyPlaylistName,
+                cover_path: serverCoverPath,
+                tracks: selected.map(t => ({
+                    qobuz_url: t.qobuz_url,
+                    name: t.name,
+                    artist: t.artist,
+                })),
+            })
+        });
+        rawText = await r.text();
+    } catch (e) {
         btn.disabled = false;
-        if (d.status === 'ok') {
-            document.getElementById('tab-queue-link').click();
-            setSpotifyStatus('');
-        } else {
-            setSpotifyStatus('✗ ' + (d.message || JSON.stringify(d)));
-        }
-    }).catch(e => { btn.disabled = false; setSpotifyStatus('✗ Request failed: ' + e); });
+        setSpotifyStatus('✗ Request failed: ' + e);
+        return;
+    }
+    let d;
+    try { d = JSON.parse(rawText); }
+    catch (_) {
+        btn.disabled = false;
+        setSpotifyStatus(`✗ Server error: ${rawText.substring(0, 200)}`);
+        return;
+    }
+    btn.disabled = false;
+    if (d.status === 'ok') {
+        document.getElementById('tab-queue-link').click();
+        setSpotifyStatus('');
+    } else {
+        setSpotifyStatus('✗ ' + (d.message || JSON.stringify(d)));
+    }
 });
 
 function setSpotifyStatus(msg) {
@@ -1127,6 +1149,15 @@ async function doSpotifyCsvLoad() {
     } catch (e) {
         setSpotifyStatus('✗ Request failed: ' + e);
     }
+}
+
+function dataUrlToBlob(dataUrl) {
+    const [header, b64] = dataUrl.split(',');
+    const mime = header.match(/:(.*?);/)[1];
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], {type: mime});
 }
 
 // ── Auto Charts ──────────────────────────────────────────────────────────────
