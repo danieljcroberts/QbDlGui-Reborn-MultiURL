@@ -135,7 +135,6 @@ def _download_spotify_track(qobuz, item, download_location, quality):
     url = item['url']
     playlist_dir = item['playlist_dir']
     playlist_name = item['playlist_name']
-    cover_url = item.get('cover_url', '')
     track_number = item.get('track_number', 1)
     total_tracks = item.get('total_tracks', 0)
 
@@ -144,24 +143,8 @@ def _download_spotify_track(qobuz, item, download_location, quality):
 
     os.makedirs(playlist_dir, exist_ok=True)
 
-    # Download Spotify playlist cover once (skip if already there)
-    cover_path = os.path.join(playlist_dir, 'cover.jpg')
-    if not os.path.exists(cover_path) and cover_url:
-        try:
-            if cover_url.startswith('data:'):
-                # Base64 data URI from CSV import
-                import base64 as _b64
-                _, encoded = cover_url.split(',', 1)
-                with open(cover_path, 'wb') as f:
-                    f.write(_b64.b64decode(encoded))
-            else:
-                r = req_lib.get(cover_url, timeout=30)
-                r.raise_for_status()
-                with open(cover_path, 'wb') as f:
-                    f.write(r.content)
-        except Exception as e:
-            logging.warning(f"Failed to save Spotify cover: {e}")
-
+    # Each track gets its own {Artist} - {Album} ({Year}) [{Quality}]/ subfolder
+    # inside playlist_dir, with the Qobuz album cover downloaded automatically.
     dl = Download(
         client=qobuz.client,
         item_id=track_id,
@@ -170,6 +153,7 @@ def _download_spotify_track(qobuz, item, download_location, quality):
         embed_art=True,
         downgrade_quality=True,
         playlist_dir=playlist_dir,
+        playlist_track_number=track_number,
         metadata_overrides={
             'albumartist': 'Various Artists',
             'album': playlist_name,

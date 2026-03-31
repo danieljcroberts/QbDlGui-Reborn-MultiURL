@@ -44,6 +44,7 @@ class Download:
         folder_format=None,
         track_format=None,
         playlist_dir=None,
+        playlist_track_number=None,
         metadata_overrides=None,
     ):
         self.client = client
@@ -58,6 +59,7 @@ class Download:
         self.folder_format = folder_format or DEFAULT_FOLDER
         self.track_format = track_format or DEFAULT_TRACK
         self.playlist_dir = playlist_dir
+        self.playlist_track_number = playlist_track_number
         self.metadata_overrides = metadata_overrides or {}
 
     def download_id_by_type(self, track=True):
@@ -169,8 +171,27 @@ class Download:
                 )
                 return
             if self.playlist_dir:
-                dirn = self.playlist_dir
+                # Build a per-track subfolder inside the playlist dir.
+                # Use the track's performer as the folder artist (not album artist).
+                subfolder_attr = {
+                    "album": sanitize_filename(_get_title(meta["album"])),
+                    "artist": sanitize_filename(artist) if artist else sanitize_filename(
+                        meta["album"]["artist"]["name"]
+                    ),
+                    "tracktitle": track_title,
+                    "year": meta["album"]["release_date_original"].split("-")[0],
+                    "bit_depth": bit_depth,
+                    "sampling_rate": sampling_rate,
+                }
+                sanitized_title = sanitize_filepath(folder_format.format(**subfolder_attr))
+                dirn = os.path.join(self.playlist_dir, sanitized_title)
                 os.makedirs(dirn, exist_ok=True)
+                if not self.no_cover:
+                    _get_extra(
+                        meta["album"]["image"]["large"],
+                        dirn,
+                        og_quality=self.cover_og_quality,
+                    )
             else:
                 track_attr = self._get_track_attr(
                     meta, track_title, bit_depth, sampling_rate
@@ -258,8 +279,12 @@ class Download:
             return False
         return True
 
-    @staticmethod
-    def _get_filename_attr(artist, track_metadata, track_title):
+    def _get_filename_attr(self, artist, track_metadata, track_title):
+        # Use playlist position for the file name when set; otherwise use album track number
+        if self.playlist_track_number is not None:
+            tracknumber = f"{self.playlist_track_number:02}"
+        else:
+            tracknumber = f"{track_metadata['track_number']:02}"
         return {
             "artist": artist,
             "albumartist": _safe_get(
@@ -269,7 +294,7 @@ class Download:
             "sampling_rate": track_metadata["maximum_sampling_rate"],
             "tracktitle": track_title,
             "version": track_metadata.get("version"),
-            "tracknumber": f"{track_metadata['track_number']:02}",
+            "tracknumber": tracknumber,
         }
 
     @staticmethod
