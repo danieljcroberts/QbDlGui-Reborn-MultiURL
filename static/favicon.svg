@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Rounded-square background — Qobuz brand navy -->
+  <rect width="32" height="32" rx="7" fill="#1D1B6B"/>
+
+  <!-- Q ring (white) — represents the Qobuz logo -->
+  <circle cx="15" cy="14" r="9" fill="none" stroke="white" stroke-width="2.8"/>
+  <!-- Q tail, bottom-right diagonal -->
+  <line x1="21.5" y1="20.5" x2="25.5" y2="24.5"
+        stroke="white" stroke-width="2.8" stroke-linecap="round"/>
+
+  <!-- Down-arrow in front (cyan) — represents downloading -->
+  <!-- Shaft -->
+  <line x1="15" y1="7" x2="15" y2="20"
+        stroke="#5BC8F5" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- Arrow head (triangle pointing down) -->
+  <polygon points="10,18 15,26 20,18" fill="#5BC8F5"/>
+</svg>
