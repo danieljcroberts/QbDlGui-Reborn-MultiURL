@@ -231,7 +231,14 @@ def tag_mp3(filename, root_dir, final_name, d, album, istrack=True, em_image=Fal
     if overrides:
         for k, v in overrides.items():
             k_lower = k.lower()
-            if k_lower in ID3_LEGEND:
+            if k_lower == 'tracknumber':
+                # Build TRCK frame; include total if also supplied in overrides
+                total = overrides.get('tracktotal', '')
+                trck_text = f'{v}/{total}' if total else str(v)
+                audio['TRCK'] = id3.TRCK(encoding=3, text=trck_text)
+            elif k_lower == 'tracktotal':
+                pass  # handled alongside tracknumber above
+            elif k_lower in ID3_LEGEND:
                 id3tag = ID3_LEGEND[k_lower]
                 audio[id3tag.__name__] = id3tag(encoding=3, text=v)
 

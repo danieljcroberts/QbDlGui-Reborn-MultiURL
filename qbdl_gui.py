@@ -136,6 +136,8 @@ def _download_spotify_track(qobuz, item, download_location, quality):
     playlist_dir = item['playlist_dir']
     playlist_name = item['playlist_name']
     cover_url = item.get('cover_url', '')
+    track_number = item.get('track_number', 1)
+    total_tracks = item.get('total_tracks', 0)
 
     # Track ID is the last path segment of the Qobuz URL
     track_id = url.rstrip('/').split('/')[-1]
@@ -168,7 +170,12 @@ def _download_spotify_track(qobuz, item, download_location, quality):
         embed_art=True,
         downgrade_quality=True,
         playlist_dir=playlist_dir,
-        metadata_overrides={'albumartist': 'Various Artists', 'album': playlist_name},
+        metadata_overrides={
+            'albumartist': 'Various Artists',
+            'album': playlist_name,
+            'tracknumber': str(track_number),
+            'tracktotal': str(total_tracks) if total_tracks else '',
+        },
     )
     dl.download_track()
 
@@ -919,10 +926,13 @@ def add_spotify_to_queue():
     quality = int(data.get('quality') or settings.get('quality', 7))
 
     from pathvalidate import sanitize_filename
-    playlist_dir = os.path.join(download_location, sanitize_filename(playlist_name))
+    playlist_dir = os.path.join(
+        download_location, 'Various Artists', sanitize_filename(playlist_name)
+    )
+    total_tracks = len(tracks)
 
     with queue_lock:
-        for t in tracks:
+        for i, t in enumerate(tracks, 1):
             download_queue.append({
                 'id': str(uuid.uuid4()),
                 'url': t['qobuz_url'],
@@ -933,6 +943,8 @@ def add_spotify_to_queue():
                 'playlist_name': playlist_name,
                 'cover_url': cover_url,
                 'playlist_dir': playlist_dir,
+                'track_number': i,
+                'total_tracks': total_tracks,
             })
         _recalc_positions()
 
