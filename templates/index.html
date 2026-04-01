@@ -374,6 +374,14 @@
                             <select class="form-control" id="chartHour"></select>
                         </div>
                     </div>
+                    <div class="form-group col-md-5 pl-0 mb-2">
+                        <label for="chartCoverFile">
+                            Custom Cover Image
+                            <span class="text-muted small">(optional — overrides auto-generated art)</span>
+                        </label>
+                        <input type="file" class="form-control-file" id="chartCoverFile" accept="image/*">
+                    </div>
+                    <div class="w-100"></div>
                     <button class="btn btn-info mr-2" id="chartPreviewBtn">🔍 Preview Tracks</button>
                     <button class="btn btn-success" id="chartSaveScheduleBtn">📅 Save Weekly Schedule</button>
                 </div>
@@ -1340,6 +1348,21 @@ document.getElementById('chartDownloadNowBtn').addEventListener('click', async (
     if (!selected.length) return;
     const btn = document.getElementById('chartDownloadNowBtn');
     btn.disabled = true;
+
+    // Upload custom cover if provided (saved to /tmp for this one-time download)
+    let customCoverPath = '';
+    const coverFile = document.getElementById('chartCoverFile').files[0];
+    if (coverFile) {
+        setChartStatus('Uploading cover image…');
+        try {
+            const fd = new FormData();
+            fd.append('cover', coverFile, 'cover.jpg');
+            const cr = await fetch('/upload_cover', { method: 'POST', body: fd });
+            const cd = await cr.json();
+            customCoverPath = cd.cover_path || '';
+        } catch (e) { console.warn('Cover upload failed:', e); }
+    }
+
     setChartStatus(`Adding ${selected.length} tracks to queue…`);
     const chartName = document.getElementById('chartName').value.trim() || 'Chart';
     let rawText;
@@ -1352,6 +1375,7 @@ document.getElementById('chartDownloadNowBtn').addEventListener('click', async (
                 source:  document.getElementById('chartSource').value,
                 chart:   document.getElementById('chartType').value,
                 country: document.getElementById('chartCountry').value,
+                custom_cover_path: customCoverPath,
                 tracks: selected.map(t => ({qobuz_url: t.qobuz_url, name: t.name, artist: t.artist})),
             })
         });
@@ -1368,15 +1392,31 @@ document.getElementById('chartDownloadNowBtn').addEventListener('click', async (
 document.getElementById('chartSaveScheduleBtn').addEventListener('click', async () => {
     const name = document.getElementById('chartName').value.trim();
     if (!name) { setChartStatus('Please enter a chart name.'); return; }
+
+    // Upload custom cover to persistent /config storage if provided
+    let customCoverPath = '';
+    const coverFile = document.getElementById('chartCoverFile').files[0];
+    if (coverFile) {
+        setChartStatus('Uploading cover image…');
+        try {
+            const fd = new FormData();
+            fd.append('cover', coverFile, 'cover.jpg');
+            const cr = await fetch('/upload_chart_cover', { method: 'POST', body: fd });
+            const cd = await cr.json();
+            customCoverPath = cd.cover_path || '';
+        } catch (e) { console.warn('Cover upload failed:', e); }
+    }
+
     const payload = {
         name,
-        source:      document.getElementById('chartSource').value,
-        chart:       document.getElementById('chartType').value,
-        country:     document.getElementById('chartCountry').value,
-        limit:       parseInt(document.getElementById('chartLimit').value) || 50,
-        api_key:     document.getElementById('chartApiKey').value.trim(),
-        day_of_week: document.getElementById('chartDay').value,
-        hour:        parseInt(document.getElementById('chartHour').value),
+        source:             document.getElementById('chartSource').value,
+        chart:              document.getElementById('chartType').value,
+        country:            document.getElementById('chartCountry').value,
+        limit:              parseInt(document.getElementById('chartLimit').value) || 50,
+        api_key:            document.getElementById('chartApiKey').value.trim(),
+        day_of_week:        document.getElementById('chartDay').value,
+        hour:               parseInt(document.getElementById('chartHour').value),
+        custom_cover_path:  customCoverPath,
     };
     let rawText;
     try {

@@ -652,6 +652,20 @@ def upload_cover():
     return jsonify(cover_path=cover_path)
 
 
+@app.route('/upload_chart_cover', methods=['POST'])
+def upload_chart_cover():
+    """Upload a custom chart cover to persistent /config storage so it survives
+    container restarts and is available for future scheduled runs."""
+    f = request.files.get('cover')
+    if not f:
+        return jsonify(error='No file provided'), 400
+    cover_dir = '/config/chart_covers'
+    os.makedirs(cover_dir, exist_ok=True)
+    cover_path = os.path.join(cover_dir, f'custom_{uuid.uuid4()}.jpg')
+    f.save(cover_path)
+    return jsonify(cover_path=cover_path)
+
+
 @app.route('/add_spotify_to_queue', methods=['POST'])
 def add_spotify_to_queue():
     global download_running
@@ -1020,9 +1034,13 @@ def _run_chart_job(schedule_id):
         except Exception as e:
             logging.warning(f'Could not delete {playlist_dir}: {e}')
 
-    # Generate (or reuse cached) cover art for this chart
-    source_name, chart_label, country_name = _get_chart_display_names(sched)
-    cover_path = _generate_chart_cover(source_name, chart_label, country_name)
+    # Use user-uploaded custom cover if set, otherwise auto-generate
+    custom = sched.get('custom_cover_path')
+    if custom and os.path.isfile(custom):
+        cover_path = custom
+    else:
+        source_name, chart_label, country_name = _get_chart_display_names(sched)
+        cover_path = _generate_chart_cover(source_name, chart_label, country_name)
 
     # Persist last_run
     for s in schedules:
@@ -1134,6 +1152,7 @@ def chart_schedule_add():
         'day_of_week': data.get('day_of_week', 'mon'),
         'hour': int(data.get('hour', 3)),
         'enabled': True,
+        'custom_cover_path': data.get('custom_cover_path', '') or '',
         'last_run': None,
         'last_folder': None,
     }
@@ -1186,14 +1205,18 @@ def chart_add_to_queue():
     password = data.get('password') or settings.get('password', '')
     quality = int(data.get('quality') or settings.get('quality', 7))
 
-    # Generate (or reuse cached) cover using the chart config sent from the browser
-    sched_info = {
-        'source': data.get('source', ''),
-        'chart': data.get('chart', ''),
-        'country': data.get('country', ''),
-    }
-    source_name, chart_label, country_name = _get_chart_display_names(sched_info)
-    cover_path = _generate_chart_cover(source_name, chart_label, country_name)
+    # Use user-uploaded cover if provided, otherwise auto-generate
+    custom_cover = data.get('custom_cover_path', '') or ''
+    if custom_cover and os.path.isfile(custom_cover):
+        cover_path = custom_cover
+    else:
+        sched_info = {
+            'source': data.get('source', ''),
+            'chart': data.get('chart', ''),
+            'country': data.get('country', ''),
+        }
+        source_name, chart_label, country_name = _get_chart_display_names(sched_info)
+        cover_path = _generate_chart_cover(source_name, chart_label, country_name)
 
     playlist_dir = os.path.join(download_location, 'Charts', sanitize_filename(chart_name))
 
