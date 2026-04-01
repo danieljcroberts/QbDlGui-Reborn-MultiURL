@@ -1347,7 +1347,11 @@ document.getElementById('chartDownloadNowBtn').addEventListener('click', async (
         const r = await fetch('/chart/add_to_queue', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
-                ...getFormData(), chart_name: chartName,
+                ...getFormData(),
+                chart_name: chartName,
+                source:  document.getElementById('chartSource').value,
+                chart:   document.getElementById('chartType').value,
+                country: document.getElementById('chartCountry').value,
                 tracks: selected.map(t => ({qobuz_url: t.qobuz_url, name: t.name, artist: t.artist})),
             })
         });

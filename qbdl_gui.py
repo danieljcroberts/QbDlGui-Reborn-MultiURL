@@ -807,6 +807,120 @@ def _fetch_lastfm_chart(chart_id, api_key, limit):
     ]
 
 
+def _get_chart_display_names(sched):
+    """Return (source_name, chart_label, country_name) for a schedule dict."""
+    src_cfg = CHART_SOURCES.get(sched.get('source', ''), {})
+    source_name = src_cfg.get('name', sched.get('source', ''))
+    chart_label = next(
+        (c['name'] for c in src_cfg.get('charts', []) if c['id'] == sched.get('chart', '')),
+        sched.get('chart', ''),
+    )
+    country_name = ''
+    if src_cfg.get('has_country'):
+        country_name = next(
+            (c['name'] for c in src_cfg.get('countries', []) if c['id'] == sched.get('country', '')),
+            sched.get('country', ''),
+        )
+    return source_name, chart_label, country_name
+
+
+def _generate_chart_cover(source_name, chart_label, country_name):
+    """Generate (or return cached) a 600×600 cover image for a chart.
+    Cached by config hash in /config/chart_covers/ so it never changes
+    across re-runs of the same schedule."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        import hashlib
+
+        cache_key = hashlib.md5(
+            f'{source_name}|{chart_label}|{country_name}'.encode()
+        ).hexdigest()[:12]
+        cover_dir = '/config/chart_covers'
+        os.makedirs(cover_dir, exist_ok=True)
+        cover_path = os.path.join(cover_dir, f'{cache_key}.jpg')
+
+        if os.path.isfile(cover_path):
+            return cover_path
+
+        # Colour scheme per source
+        _src = source_name.lower()
+        if 'apple' in _src:
+            bg, accent = '#0d0000', '#fc3c44'
+        elif 'deezer' in _src:
+            bg, accent = '#0d0013', '#ef5466'
+        elif 'last' in _src:
+            bg, accent = '#0d0000', '#d51007'
+        else:
+            bg, accent = '#0d111a', '#5bc8f5'
+
+        SIZE = 600
+        img = Image.new('RGB', (SIZE, SIZE), bg)
+        draw = ImageDraw.Draw(img)
+
+        # Try to load DejaVu Bold; fall back to Pillow default
+        def _font(px):
+            for path in (
+                '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
+                '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
+                '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            ):
+                if os.path.isfile(path):
+                    try:
+                        return ImageFont.truetype(path, px)
+                    except Exception:
+                        pass
+            try:
+                return ImageFont.load_default(size=px)
+            except TypeError:
+                return ImageFont.load_default()
+
+        # Accent bars top & bottom
+        draw.rectangle([(0, 0), (SIZE, 10)], fill=accent)
+        draw.rectangle([(0, SIZE - 10), (SIZE, SIZE)], fill=accent)
+
+        cx = SIZE // 2
+
+        # Source name
+        draw.text((cx, 90), source_name.upper(), font=_font(54), fill=accent, anchor='mm')
+
+        # Thin divider
+        draw.rectangle([(50, 132), (SIZE - 50, 135)], fill=accent)
+
+        # Chart label (may be long — split at ' / ' or wrap at ~22 chars)
+        label_lines = []
+        words = chart_label.split()
+        line = ''
+        for w in words:
+            test = (line + ' ' + w).strip()
+            if len(test) > 18 and line:
+                label_lines.append(line)
+                line = w
+            else:
+                line = test
+        if line:
+            label_lines.append(line)
+
+        y = 230 - (len(label_lines) - 1) * 28
+        for ln in label_lines:
+            draw.text((cx, y), ln, font=_font(48), fill='#ffffff', anchor='mm')
+            y += 58
+
+        # Country / genre
+        if country_name:
+            draw.text((cx, y + 20), country_name, font=_font(34), fill='#bbbbbb', anchor='mm')
+
+        # Watermark
+        draw.text((cx, SIZE - 32), 'AUTO CHARTS', font=_font(20), fill='#444444', anchor='mm')
+
+        img.save(cover_path, 'JPEG', quality=92)
+        logging.info(f'Chart cover generated: {cover_path}')
+        return cover_path
+
+    except Exception as e:
+        logging.warning(f'Could not generate chart cover: {e}')
+        return None
+
+
 def _fetch_chart_tracks(sched):
     src, chart_id, limit = sched['source'], sched['chart'], int(sched.get('limit', 50))
     if src == 'apple':
@@ -908,6 +1022,10 @@ def _run_chart_job(schedule_id):
 
     playlist_dir = os.path.join(download_location, 'Charts', sanitize_filename(chart_name))
 
+    # Generate (or reuse cached) cover art for this chart
+    source_name, chart_label, country_name = _get_chart_display_names(sched)
+    cover_path = _generate_chart_cover(source_name, chart_label, country_name)
+
     # Persist last_run and last_folder so next run knows what to delete
     for s in schedules:
         if s['id'] == schedule_id:
@@ -926,7 +1044,7 @@ def _run_chart_job(schedule_id):
                 'position': None,
                 'is_spotify_track': True,
                 'playlist_name': chart_name,
-                'cover_url': '',
+                'cover_path': cover_path or '',
                 'playlist_dir': playlist_dir,
                 'track_number': t['position'],
                 'total_tracks': total,
@@ -1071,6 +1189,15 @@ def chart_add_to_queue():
     password = data.get('password') or settings.get('password', '')
     quality = int(data.get('quality') or settings.get('quality', 7))
 
+    # Generate (or reuse cached) cover using the chart config sent from the browser
+    sched_info = {
+        'source': data.get('source', ''),
+        'chart': data.get('chart', ''),
+        'country': data.get('country', ''),
+    }
+    source_name, chart_label, country_name = _get_chart_display_names(sched_info)
+    cover_path = _generate_chart_cover(source_name, chart_label, country_name)
+
     week_str = datetime.now().strftime('%Y-W%V')
     folder_name = f"{chart_name} {week_str}"
     playlist_dir = os.path.join(download_location, 'Charts', sanitize_filename(folder_name))
@@ -1086,7 +1213,7 @@ def chart_add_to_queue():
                 'position': None,
                 'is_spotify_track': True,
                 'playlist_name': folder_name,
-                'cover_url': '',
+                'cover_path': cover_path or '',
                 'playlist_dir': playlist_dir,
                 'track_number': i,
                 'total_tracks': total,
