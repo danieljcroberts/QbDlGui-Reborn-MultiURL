@@ -970,18 +970,8 @@ def _run_chart_job(schedule_id):
 
     from datetime import datetime
     from pathvalidate import sanitize_filename
-    week_str = datetime.now().strftime('%Y-W%V')
-    chart_name = f"{sched['name']} {week_str}"
-
-    # Delete previous week's folder
-    last_folder = sched.get('last_folder')
-    if last_folder and os.path.exists(last_folder):
-        import shutil
-        try:
-            shutil.rmtree(last_folder)
-            logging.info(f'Deleted old chart folder: {last_folder}')
-        except Exception as e:
-            logging.warning(f'Could not delete {last_folder}: {e}')
+    import shutil
+    chart_name = sched['name']
 
     # Fetch track list from source
     try:
@@ -1022,15 +1012,22 @@ def _run_chart_job(schedule_id):
 
     playlist_dir = os.path.join(download_location, 'Charts', sanitize_filename(chart_name))
 
+    # Delete the existing folder so the playlist is fully replaced each run
+    if os.path.exists(playlist_dir):
+        try:
+            shutil.rmtree(playlist_dir)
+            logging.info(f'Deleted existing chart folder for refresh: {playlist_dir}')
+        except Exception as e:
+            logging.warning(f'Could not delete {playlist_dir}: {e}')
+
     # Generate (or reuse cached) cover art for this chart
     source_name, chart_label, country_name = _get_chart_display_names(sched)
     cover_path = _generate_chart_cover(source_name, chart_label, country_name)
 
-    # Persist last_run and last_folder so next run knows what to delete
+    # Persist last_run
     for s in schedules:
         if s['id'] == schedule_id:
             s['last_run'] = datetime.now().isoformat()
-            s['last_folder'] = playlist_dir
     _save_chart_schedules(schedules)
 
     total = len(matched)
@@ -1198,9 +1195,16 @@ def chart_add_to_queue():
     source_name, chart_label, country_name = _get_chart_display_names(sched_info)
     cover_path = _generate_chart_cover(source_name, chart_label, country_name)
 
-    week_str = datetime.now().strftime('%Y-W%V')
-    folder_name = f"{chart_name} {week_str}"
-    playlist_dir = os.path.join(download_location, 'Charts', sanitize_filename(folder_name))
+    playlist_dir = os.path.join(download_location, 'Charts', sanitize_filename(chart_name))
+
+    # Delete existing folder so each manual download is also a clean refresh
+    if os.path.exists(playlist_dir):
+        try:
+            import shutil
+            shutil.rmtree(playlist_dir)
+            logging.info(f'Deleted existing chart folder for refresh: {playlist_dir}')
+        except Exception as e:
+            logging.warning(f'Could not delete {playlist_dir}: {e}')
 
     total = len(tracks)
     with queue_lock:
@@ -1212,7 +1216,7 @@ def chart_add_to_queue():
                 'status': 'queued',
                 'position': None,
                 'is_spotify_track': True,
-                'playlist_name': folder_name,
+                'playlist_name': chart_name,
                 'cover_path': cover_path or '',
                 'playlist_dir': playlist_dir,
                 'track_number': i,
