@@ -1512,6 +1512,21 @@ def discogs_cover(release_id):
     return send_file(cover_file, mimetype='image/jpeg')
 
 
+_AUDIO_EXTENSIONS = {'.flac', '.mp3', '.m4a', '.ogg', '.wav', '.aiff', '.alac', '.opus'}
+
+
+def _count_audio_files(folder):
+    """Recursively count audio files under folder."""
+    if not os.path.isdir(folder):
+        return 0
+    count = 0
+    for root, _dirs, files in os.walk(folder):
+        for f in files:
+            if os.path.splitext(f)[1].lower() in _AUDIO_EXTENSIONS:
+                count += 1
+    return count
+
+
 @app.route('/discogs/add_to_queue', methods=['POST'])
 def discogs_add_to_queue():
     global download_running
@@ -1522,6 +1537,7 @@ def discogs_add_to_queue():
     album_name = (data.get('album_name') or 'Discogs Album').strip()
     tracks = data.get('tracks', [])
     cover_path = data.get('cover_path', '') or ''
+    force = bool(data.get('force', False))
     download_location = settings.get('download_location', '/downloads')
     email = settings.get('email', '')
     password = settings.get('password', '')
@@ -1533,6 +1549,23 @@ def discogs_add_to_queue():
     playlist_dir = os.path.join(download_location, 'Discogs', sanitize_filename(album_name))
     total = len(tracks)
 
+    # Check how many audio files already exist in the folder
+    already_present = _count_audio_files(playlist_dir)
+
+    if already_present >= total and not force:
+        # All tracks appear to be present — tell the frontend so it can confirm
+        return jsonify(
+            status='already_complete',
+            already_present=already_present,
+            total=total,
+            message=(
+                f'All {total} tracks appear to already be downloaded to '
+                f'"{playlist_dir}". Re-download anyway?'
+            ),
+        )
+
+    # Queue all selected tracks — the per-file check in the downloader will
+    # automatically skip any file that already exists on disk.
     with queue_lock:
         for i, t in enumerate(tracks, 1):
             download_queue.append({
@@ -1563,7 +1596,13 @@ def discogs_add_to_queue():
             daemon=True,
         ).start()
 
-    return jsonify(status='ok', queued=total)
+    missing = max(0, total - already_present)
+    return jsonify(
+        status='ok',
+        queued=total,
+        already_present=already_present,
+        missing=missing,
+    )
 
 
 if __name__ == "__main__":
