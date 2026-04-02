@@ -1767,10 +1767,10 @@ document.getElementById('discogsSelectAll').addEventListener('change', function(
 });
 
 document.getElementById('discogsDownloadBtn').addEventListener('click', async () => {
-    await discogsSubmitDownload(false);
+    await discogsSubmitDownload();
 });
 
-async function discogsSubmitDownload(force) {
+async function discogsSubmitDownload(force = false) {
     const selected = [...discogsSelectedIdxs].sort((a,b)=>a-b)
         .map(i => discogsTracks[i]).filter(t => t.qobuz_url);
     if (!selected.length) return;
@@ -1796,26 +1796,7 @@ async function discogsSubmitDownload(force) {
 
     if (d.status === 'already_complete') {
         btn.disabled = false;
-        // All tracks already on disk — confirm re-download
-        setDiscogsStatus(`⚠ ${d.message}`);
-        // Replace the download button with a confirm prompt inline
-        const confirmHtml = `
-            <span id="discogsRedownloadPrompt" class="ml-2">
-                <button class="btn btn-warning btn-sm mr-1" id="discogsRedownloadYes">↺ Re-download anyway</button>
-                <button class="btn btn-secondary btn-sm" id="discogsRedownloadNo">Keep existing</button>
-            </span>`;
-        btn.insertAdjacentHTML('afterend', confirmHtml);
-        btn.style.display = 'none';
-        document.getElementById('discogsRedownloadYes').addEventListener('click', async () => {
-            document.getElementById('discogsRedownloadPrompt').remove();
-            btn.style.display = '';
-            await discogsSubmitDownload(true);
-        });
-        document.getElementById('discogsRedownloadNo').addEventListener('click', () => {
-            document.getElementById('discogsRedownloadPrompt').remove();
-            btn.style.display = '';
-            setDiscogsStatus('Skipped — existing files kept.');
-        });
+        setDiscogsStatus(`✓ Skipped — all ${d.total} tracks already downloaded.`);
         return;
     }
 
