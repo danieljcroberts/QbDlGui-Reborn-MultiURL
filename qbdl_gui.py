@@ -604,6 +604,41 @@ def search_qobuz_tracks():
     return jsonify(results=results)
 
 
+@app.route('/search_qobuz_albums_batch', methods=['POST'])
+def search_qobuz_albums_batch():
+    """Batch-search Qobuz for albums by artist + title. Used by album-type chart previews."""
+    data = request.get_json(force=True, silent=False)
+    albums = data.get('albums', [])
+    if not albums:
+        return jsonify(error='No albums provided'), 400
+
+    qobuz, err = get_qobuz_client()
+    if err:
+        return jsonify(error=err), 400
+
+    results = []
+    for alb in albums:
+        query = f"{alb.get('artist', '')} {alb.get('name', '')}".strip()
+        try:
+            r = qobuz.client.search_albums(query, 1)
+            items = r.get('albums', {}).get('items', [])
+            if items:
+                album = items[0]
+                results.append({
+                    'found': True,
+                    'qobuz_url': f"{QOBUZ_WEB}album/{album['id']}",
+                    'qobuz_title': album.get('title', ''),
+                    'qobuz_artist': (album.get('artist') or {}).get('name', ''),
+                })
+            else:
+                results.append({'found': False, 'qobuz_url': None, 'qobuz_title': None, 'qobuz_artist': None})
+        except Exception as e:
+            logging.warning(f"Qobuz album search failed for '{query}': {e}")
+            results.append({'found': False, 'qobuz_url': None, 'qobuz_title': None, 'qobuz_artist': None})
+
+    return jsonify(results=results)
+
+
 @app.route('/import_spotify_csv', methods=['POST'])
 def import_spotify_csv():
     """Accept a pre-parsed CSV track list from the browser (e.g. Exportify export).
@@ -731,8 +766,9 @@ CHART_SOURCES = {
         'needs_key': False,
         'has_country': True,
         'charts': [
-            {'id': 'most-played', 'name': 'Most Played'},
-            {'id': 'top-songs',   'name': 'Top Songs'},
+            {'id': 'most-played',  'name': 'Most Played',   'type': 'track'},
+            {'id': 'top-songs',    'name': 'Top Songs',     'type': 'track'},
+            {'id': 'new-releases', 'name': 'New Releases',  'type': 'album'},
         ],
         'countries': [
             {'id': 'us', 'name': 'United States'},
@@ -749,16 +785,16 @@ CHART_SOURCES = {
         'needs_key': False,
         'has_country': False,
         'charts': [
-            {'id': 'global', 'name': 'Global Top'},
-            {'id': '132',    'name': 'Pop'},
-            {'id': '116',    'name': 'Rap / Hip-Hop'},
-            {'id': '152',    'name': 'Rock'},
-            {'id': '113',    'name': 'Dance / Electronic'},
-            {'id': '165',    'name': 'R&B / Soul'},
-            {'id': '85',     'name': 'Alternative'},
-            {'id': '129',    'name': 'Jazz'},
-            {'id': '84',     'name': 'Country'},
-            {'id': '464',    'name': 'Metal'},
+            {'id': 'global', 'name': 'Global Top',         'type': 'track'},
+            {'id': '132',    'name': 'Pop',                'type': 'track'},
+            {'id': '116',    'name': 'Rap / Hip-Hop',      'type': 'track'},
+            {'id': '152',    'name': 'Rock',               'type': 'track'},
+            {'id': '113',    'name': 'Dance / Electronic', 'type': 'track'},
+            {'id': '165',    'name': 'R&B / Soul',         'type': 'track'},
+            {'id': '85',     'name': 'Alternative',        'type': 'track'},
+            {'id': '129',    'name': 'Jazz',               'type': 'track'},
+            {'id': '84',     'name': 'Country',            'type': 'track'},
+            {'id': '464',    'name': 'Metal',              'type': 'track'},
         ],
     },
     'lastfm': {
@@ -766,17 +802,25 @@ CHART_SOURCES = {
         'needs_key': True,
         'has_country': False,
         'charts': [
-            {'id': 'global',        'name': 'Global Top'},
-            {'id': 'tag:pop',       'name': 'Pop'},
-            {'id': 'tag:hip-hop',   'name': 'Hip-Hop'},
-            {'id': 'tag:rock',      'name': 'Rock'},
-            {'id': 'tag:electronic','name': 'Electronic'},
-            {'id': 'tag:r-n-b',     'name': 'R&B'},
-            {'id': 'tag:country',   'name': 'Country'},
-            {'id': 'tag:jazz',      'name': 'Jazz'},
-            {'id': 'tag:metal',     'name': 'Metal'},
-            {'id': 'tag:indie',     'name': 'Indie'},
-            {'id': 'tag:classical', 'name': 'Classical'},
+            {'id': 'global',        'name': 'Global Top',  'type': 'track'},
+            {'id': 'tag:pop',       'name': 'Pop',         'type': 'track'},
+            {'id': 'tag:hip-hop',   'name': 'Hip-Hop',     'type': 'track'},
+            {'id': 'tag:rock',      'name': 'Rock',        'type': 'track'},
+            {'id': 'tag:electronic','name': 'Electronic',  'type': 'track'},
+            {'id': 'tag:r-n-b',     'name': 'R&B',         'type': 'track'},
+            {'id': 'tag:country',   'name': 'Country',     'type': 'track'},
+            {'id': 'tag:jazz',      'name': 'Jazz',        'type': 'track'},
+            {'id': 'tag:metal',     'name': 'Metal',       'type': 'track'},
+            {'id': 'tag:indie',     'name': 'Indie',       'type': 'track'},
+            {'id': 'tag:classical', 'name': 'Classical',   'type': 'track'},
+        ],
+    },
+    'pitchfork': {
+        'name': 'Pitchfork',
+        'needs_key': False,
+        'has_country': False,
+        'charts': [
+            {'id': 'best', 'name': 'Best New Music', 'type': 'album'},
         ],
     },
 }
@@ -819,6 +863,50 @@ def _fetch_lastfm_chart(chart_id, api_key, limit):
         }
         for t in raw
     ]
+
+
+def _fetch_apple_new_releases(country, limit):
+    url = f'https://rss.applemarketingtools.com/api/v2/{country}/music/new-releases/{limit}/albums.json'
+    r = req_lib.get(url, timeout=15)
+    r.raise_for_status()
+    results = r.json().get('feed', {}).get('results', [])
+    return [{'name': i.get('name', ''), 'artist': i.get('artistName', '')} for i in results]
+
+
+def _fetch_pitchfork_best_new_music(limit):
+    import xml.etree.ElementTree as ET
+    r = req_lib.get('https://pitchfork.com/rss/reviews/best/', timeout=15,
+                    headers={'User-Agent': 'Mozilla/5.0 (compatible; QobuzDlGui/2.0)'})
+    r.raise_for_status()
+    root = ET.fromstring(r.content)
+    items = root.findall('.//item')
+    results = []
+    for item in items[:limit]:
+        raw_title = (item.findtext('title') or '').strip()
+        # Pitchfork titles: "Artist: Album Title" or "Artist / Album"
+        if ': ' in raw_title:
+            artist, name = raw_title.split(': ', 1)
+        elif ' / ' in raw_title:
+            artist, name = raw_title.split(' / ', 1)
+        else:
+            # Fallback: title is just the album, no artist split possible
+            artist, name = '', raw_title
+        results.append({'name': name.strip(), 'artist': artist.strip()})
+    return results
+
+
+def _chart_item_type(sched):
+    """Return 'album' if this schedule/preview is album-type, else 'track'."""
+    src = sched.get('source', '')
+    chart_id = sched.get('chart', '')
+    src_cfg = CHART_SOURCES.get(src, {})
+    for c in src_cfg.get('charts', []):
+        if c['id'] == chart_id:
+            return c.get('type', 'track')
+    # Whole-source fallback (e.g. pitchfork always album)
+    if src == 'pitchfork':
+        return 'album'
+    return 'track'
 
 
 def _get_chart_display_names(sched):
@@ -938,11 +1026,15 @@ def _generate_chart_cover(source_name, chart_label, country_name):
 def _fetch_chart_tracks(sched):
     src, chart_id, limit = sched['source'], sched['chart'], int(sched.get('limit', 50))
     if src == 'apple':
+        if chart_id == 'new-releases':
+            return _fetch_apple_new_releases(sched.get('country', 'us'), limit)
         return _fetch_apple_chart(chart_id, sched.get('country', 'us'), limit)
     if src == 'deezer':
         return _fetch_deezer_chart(chart_id, limit)
     if src == 'lastfm':
         return _fetch_lastfm_chart(chart_id, sched.get('api_key', ''), limit)
+    if src == 'pitchfork':
+        return _fetch_pitchfork_best_new_music(limit)
     raise ValueError(f'Unknown chart source: {src}')
 
 
@@ -986,26 +1078,78 @@ def _run_chart_job(schedule_id):
     from pathvalidate import sanitize_filename
     import shutil
     chart_name = sched['name']
+    is_album = _chart_item_type(sched) == 'album'
 
-    # Fetch track list from source
+    # Fetch item list from source
     try:
-        raw_tracks = _fetch_chart_tracks(sched)
+        raw_items = _fetch_chart_tracks(sched)
     except Exception as e:
         logging.error(f'Chart job {schedule_id}: fetch failed: {e}')
         return
 
-    if not raw_tracks:
-        logging.warning(f'Chart job {schedule_id}: no tracks returned')
+    if not raw_items:
+        logging.warning(f'Chart job {schedule_id}: no items returned')
         return
 
-    # Match each track on Qobuz
+    # Match on Qobuz
     qobuz, err = get_qobuz_client()
     if err:
         logging.error(f'Chart job {schedule_id}: Qobuz error: {err}')
         return
 
+    # ── Album-type chart (e.g. Apple New Releases, Pitchfork Best New Music) ──
+    if is_album:
+        matched_urls = []
+        for t in raw_items:
+            query = f"{t['artist']} {t['name']}".strip()
+            try:
+                res = qobuz.client.search_albums(query, 1)
+                items = res.get('albums', {}).get('items', [])
+                if items:
+                    matched_urls.append(f"{QOBUZ_WEB}album/{items[0]['id']}")
+            except Exception as e:
+                logging.warning(f'Chart job: Qobuz album search failed for "{query}": {e}')
+
+        if not matched_urls:
+            logging.warning(f'Chart job {schedule_id}: no albums matched on Qobuz')
+            return
+
+        # Persist last_run
+        for s in schedules:
+            if s['id'] == schedule_id:
+                s['last_run'] = datetime.now().isoformat()
+        _save_chart_schedules(schedules)
+
+        with queue_lock:
+            for url in matched_urls:
+                download_queue.append({
+                    'id': str(uuid.uuid4()),
+                    'url': url,
+                    'label': f'[Chart] {chart_name}',
+                    'status': 'queued',
+                    'position': None,
+                })
+            _recalc_positions()
+
+        emit_queue_state()
+
+        if not download_running:
+            download_running = True
+            threading.Thread(
+                target=run_queue,
+                args=(email, password, download_location, quality,
+                      settings.get('navidrome_url', ''),
+                      settings.get('navidrome_user', ''),
+                      settings.get('navidrome_password', '')),
+                daemon=True,
+            ).start()
+
+        logging.info(f'Chart job {schedule_id}: queued {len(matched_urls)} albums for "{chart_name}"')
+        return
+
+    # ── Track-type chart (playlist download) ─────────────────────────────────
     matched = []
-    for i, t in enumerate(raw_tracks):
+    for i, t in enumerate(raw_items):
         query = f"{t['artist']} {t['name']}".strip()
         try:
             res = qobuz.client.search_tracks(query, 1)
@@ -1115,7 +1259,7 @@ def chart_sources_route():
 
 @app.route('/chart/preview', methods=['POST'])
 def chart_preview():
-    """Fetch raw track list from chart source (Qobuz matching done client-side)."""
+    """Fetch raw track/album list from chart source (Qobuz matching done client-side)."""
     data = request.get_json(force=True, silent=False)
     sched = {
         'source': data.get('source', 'apple'),
@@ -1128,7 +1272,11 @@ def chart_preview():
         tracks = _fetch_chart_tracks(sched)
     except Exception as e:
         return jsonify(error=str(e)), 400
-    return jsonify(tracks=[{'name': t['name'], 'artist': t['artist']} for t in tracks])
+    item_type = _chart_item_type(sched)
+    return jsonify(
+        type=item_type,
+        tracks=[{'name': t['name'], 'artist': t['artist']} for t in tracks],
+    )
 
 
 @app.route('/chart/schedule/list')
@@ -1261,6 +1409,161 @@ def chart_add_to_queue():
         ).start()
 
     return jsonify(status='ok')
+
+
+# ── Discogs routes ────────────────────────────────────────────────────────────
+
+@app.route('/discogs/fetch', methods=['POST'])
+def discogs_fetch():
+    import re
+    import xml.etree.ElementTree as ET  # noqa — unused here but keeps import local
+
+    data = request.get_json(force=True, silent=False)
+    url = (data.get('url') or '').strip()
+
+    # Accept release and master URLs
+    m = re.search(r'discogs\.com/(?:[^/]+/)?(?P<type>release|master)/(?P<id>\d+)', url)
+    if not m:
+        return jsonify(error='Could not parse a Discogs release or master URL. '
+                       'Expected: https://www.discogs.com/release/12345 or …/master/12345'), 400
+
+    release_id = m.group('id')
+    is_master = m.group('type') == 'master'
+    api_url = f'https://api.discogs.com/{"masters" if is_master else "releases"}/{release_id}'
+
+    headers = {'User-Agent': 'QobuzDlGui/2.0 +https://github.com/danjcroberts/QbDlGui-Reborn'}
+    try:
+        r = req_lib.get(api_url, timeout=15, headers=headers)
+        r.raise_for_status()
+        d = r.json()
+    except Exception as e:
+        return jsonify(error=f'Discogs API error: {e}'), 400
+
+    title = d.get('title', 'Unknown Album')
+    year = str(d.get('year', '')) if d.get('year') else ''
+
+    # Album artist
+    artists = d.get('artists', [])
+    def _clean_artist(name):
+        return re.sub(r'\s*\(\d+\)$', '', (name or '').rstrip('*').strip())
+    album_artist = ' / '.join(_clean_artist(a.get('name', '')) for a in artists) if artists else 'Various Artists'
+    if album_artist.lower() in ('various', 'various artists', 'v/a'):
+        album_artist = 'Various Artists'
+
+    # Tracklist — skip heading/index entries
+    raw_tracklist = d.get('tracklist', [])
+    tracklist = []
+    for t in raw_tracklist:
+        if t.get('type_', 'track') != 'track':
+            continue
+        t_artists = t.get('artists', [])
+        if t_artists:
+            t_artist = ' / '.join(_clean_artist(a.get('name', '')) for a in t_artists)
+        else:
+            t_artist = album_artist
+        tracklist.append({
+            'position': t.get('position', ''),
+            'name': (t.get('title') or '').strip(),
+            'artist': t_artist,
+            'duration': t.get('duration', ''),
+        })
+
+    # Download primary cover image to /tmp/discogs_covers/{id}.jpg
+    cover_path = ''
+    images = d.get('images', [])
+    cover_url = next(
+        (img.get('uri', '') or img.get('uri150', '') for img in images if img.get('type') == 'primary'),
+        (images[0].get('uri', '') or images[0].get('uri150', '')) if images else '',
+    )
+    if cover_url:
+        try:
+            cover_dir = '/tmp/discogs_covers'
+            os.makedirs(cover_dir, exist_ok=True)
+            cover_file = os.path.join(cover_dir, f'{release_id}.jpg')
+            if not os.path.isfile(cover_file):
+                img_r = req_lib.get(cover_url, timeout=20, headers=headers)
+                img_r.raise_for_status()
+                with open(cover_file, 'wb') as f:
+                    f.write(img_r.content)
+            cover_path = cover_file
+        except Exception as e:
+            logging.warning(f'Could not download Discogs cover: {e}')
+
+    return jsonify(
+        title=title,
+        year=year,
+        album_artist=album_artist,
+        tracklist=tracklist,
+        cover_path=cover_path,
+        release_id=release_id,
+    )
+
+
+@app.route('/discogs/cover/<release_id>')
+def discogs_cover(release_id):
+    """Serve the locally cached Discogs cover image."""
+    import re
+    from flask import send_file
+    if not re.fullmatch(r'\d+', release_id):
+        return ('', 404)
+    cover_file = f'/tmp/discogs_covers/{release_id}.jpg'
+    if not os.path.isfile(cover_file):
+        return ('', 404)
+    return send_file(cover_file, mimetype='image/jpeg')
+
+
+@app.route('/discogs/add_to_queue', methods=['POST'])
+def discogs_add_to_queue():
+    global download_running
+    data = request.get_json(force=True, silent=False)
+    settings = load_settings()
+    from pathvalidate import sanitize_filename
+
+    album_name = (data.get('album_name') or 'Discogs Album').strip()
+    tracks = data.get('tracks', [])
+    cover_path = data.get('cover_path', '') or ''
+    download_location = settings.get('download_location', '/downloads')
+    email = settings.get('email', '')
+    password = settings.get('password', '')
+    quality = int(settings.get('quality', 7))
+
+    if not tracks:
+        return jsonify(status='error', message='No tracks provided'), 400
+
+    playlist_dir = os.path.join(download_location, 'Discogs', sanitize_filename(album_name))
+    total = len(tracks)
+
+    with queue_lock:
+        for i, t in enumerate(tracks, 1):
+            download_queue.append({
+                'id': str(uuid.uuid4()),
+                'url': t['qobuz_url'],
+                'label': f"[Discogs] {t.get('artist', '')} — {t.get('name', t['qobuz_url'])}",
+                'status': 'queued',
+                'position': None,
+                'is_spotify_track': True,
+                'playlist_name': album_name,
+                'cover_path': cover_path,
+                'playlist_dir': playlist_dir,
+                'track_number': i,
+                'total_tracks': total,
+            })
+        _recalc_positions()
+
+    emit_queue_state()
+
+    if not download_running:
+        download_running = True
+        threading.Thread(
+            target=run_queue,
+            args=(email, password, download_location, quality,
+                  settings.get('navidrome_url', ''),
+                  settings.get('navidrome_user', ''),
+                  settings.get('navidrome_password', '')),
+            daemon=True,
+        ).start()
+
+    return jsonify(status='ok', queued=total)
 
 
 if __name__ == "__main__":

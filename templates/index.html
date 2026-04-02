@@ -91,6 +91,9 @@
         <li class="nav-item">
             <a class="nav-link" id="tab-charts-link" data-toggle="tab" href="#tab-charts">📊 Auto Charts</a>
         </li>
+        <li class="nav-item">
+            <a class="nav-link" id="tab-discogs-link" data-toggle="tab" href="#tab-discogs">🗂 Discogs</a>
+        </li>
     </ul>
 
     <div class="tab-content">
@@ -320,6 +323,7 @@
                                 <option value="apple">Apple Music</option>
                                 <option value="deezer">Deezer</option>
                                 <option value="lastfm">Last.fm</option>
+                                <option value="pitchfork">Pitchfork</option>
                             </select>
                         </div>
                         <div class="form-group col-md-3">
@@ -339,8 +343,8 @@
                             </select>
                         </div>
                         <div class="form-group col-md-2">
-                            <label>Tracks</label>
-                            <input type="number" class="form-control" id="chartLimit" value="50" min="10" max="100">
+                            <label id="chartLimitLabel">Tracks</label>
+                            <input type="number" class="form-control" id="chartLimit" value="50" min="5" max="100">
                         </div>
                     </div>
                     <div class="form-row" id="chartApiKeyRow" style="display:none;">
@@ -374,7 +378,7 @@
                             <select class="form-control" id="chartHour"></select>
                         </div>
                     </div>
-                    <div class="form-group col-md-5 pl-0 mb-2">
+                    <div id="chartCoverRow" class="form-group col-md-5 pl-0 mb-2">
                         <label for="chartCoverFile">
                             Custom Cover Image
                             <span class="text-muted small">(optional — overrides auto-generated art)</span>
@@ -382,7 +386,7 @@
                         <input type="file" class="form-control-file" id="chartCoverFile" accept="image/*">
                     </div>
                     <div class="w-100"></div>
-                    <button class="btn btn-info mr-2" id="chartPreviewBtn">🔍 Preview Tracks</button>
+                    <button class="btn btn-info mr-2" id="chartPreviewBtn">🔍 Preview</button>
                     <button class="btn btn-success" id="chartSaveScheduleBtn">📅 Save Weekly Schedule</button>
                 </div>
             </div>
@@ -398,7 +402,7 @@
                             <label class="custom-control-label small" for="chartSelectAll">Select all found</label>
                         </div>
                         <button class="btn btn-primary btn-sm" id="chartDownloadNowBtn" disabled>
-                            ▶ Download Now (<span id="chartSelectedCount">0</span>)
+                            ▶ Download Selected (<span id="chartSelectedCount">0</span>)
                         </button>
                         <span id="chartMatchStatus" class="ml-3 text-muted small"></span>
                     </div>
@@ -424,6 +428,84 @@
             </div>
 
         </div><!-- /tab-charts -->
+
+        <!-- ── Discogs Tab ── -->
+        <div class="tab-pane fade" id="tab-discogs">
+
+            <!-- URL Input -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h6 class="card-title mb-3">🗂 Discogs Album Import</h6>
+                    <p class="text-muted small mb-3">
+                        Paste a Discogs release or master URL. The app will fetch the tracklist, match each track on
+                        Qobuz, and download them as a single album using the Discogs title and cover art.
+                        Album artist is set to <strong>Various Artists</strong>.
+                    </p>
+                    <div class="form-row align-items-end">
+                        <div class="form-group col-md-8 mb-0">
+                            <label>Discogs URL</label>
+                            <input type="text" class="form-control" id="discogsUrl"
+                                placeholder="https://www.discogs.com/release/12345-Artist-Album">
+                        </div>
+                        <div class="form-group col-md-2 mb-0">
+                            <button class="btn btn-info btn-block" id="discogsFetchBtn">🔍 Fetch</button>
+                        </div>
+                    </div>
+                    <div id="discogsStatus" class="text-muted small mt-2"></div>
+                </div>
+            </div>
+
+            <!-- Album Info + Preview -->
+            <div id="discogsPreviewSection" style="display:none;">
+
+                <!-- Album info card -->
+                <div class="card mb-3">
+                    <div class="card-body p-3">
+                        <div class="d-flex">
+                            <div id="discogsCoverWrap" style="flex:0 0 120px; margin-right:16px; display:none;">
+                                <img id="discogsCoverImg" src="" alt="cover"
+                                    style="width:120px;height:120px;object-fit:cover;border-radius:4px;">
+                            </div>
+                            <div>
+                                <h5 id="discogsAlbumTitle" class="mb-1"></h5>
+                                <p class="text-muted mb-1 small" id="discogsAlbumMeta"></p>
+                                <p class="text-muted small mb-0" id="discogsTrackCount"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Track table -->
+                <div class="card mb-3">
+                    <div class="card-body p-2">
+                        <div class="d-flex align-items-center mb-2">
+                            <div class="custom-control custom-checkbox mr-3">
+                                <input type="checkbox" class="custom-control-input" id="discogsSelectAll">
+                                <label class="custom-control-label small" for="discogsSelectAll">Select all found</label>
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="discogsDownloadBtn" disabled>
+                                ▶ Download Selected (<span id="discogsSelectedCount">0</span>)
+                            </button>
+                            <span id="discogsMatchStatus" class="ml-3 text-muted small"></span>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-dark mb-0">
+                                <thead><tr>
+                                    <th style="width:32px"></th>
+                                    <th style="width:40px">#</th>
+                                    <th>Track</th>
+                                    <th>Artist</th>
+                                    <th style="width:110px">Qobuz</th>
+                                </tr></thead>
+                                <tbody id="discogsTrackBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /discogsPreviewSection -->
+
+        </div><!-- /tab-discogs -->
 
     </div><!-- /tab-content -->
 
@@ -1172,6 +1254,7 @@ function dataUrlToBlob(dataUrl) {
 let chartSources = {};
 let chartTracks = [];
 let chartSelectedIdxs = new Set();
+let chartCurrentType = 'track'; // 'track' or 'album'
 
 // Fill hour dropdown
 (function() {
@@ -1201,14 +1284,32 @@ function updateChartTypeOptions() {
     (cfg.charts || []).forEach(c => {
         const o = document.createElement('option');
         o.value = c.id; o.textContent = c.name;
+        o.dataset.itemType = c.type || 'track';
         sel.appendChild(o);
     });
     document.getElementById('chartCountryGroup').style.display = cfg.has_country ? '' : 'none';
     document.getElementById('chartApiKeyRow').style.display = cfg.needs_key ? '' : 'none';
+    updateChartItemTypeUI();
     autoChartName();
 }
 
-document.getElementById('chartType').addEventListener('change', autoChartName);
+document.getElementById('chartType').addEventListener('change', () => { updateChartItemTypeUI(); autoChartName(); });
+
+function updateChartItemTypeUI() {
+    const sel = document.getElementById('chartType');
+    const opt = sel.options[sel.selectedIndex];
+    const isAlbum = opt && opt.dataset.itemType === 'album';
+    chartCurrentType = isAlbum ? 'album' : 'track';
+    // Hide custom cover upload for album-type (albums download individually, no playlist cover)
+    document.getElementById('chartCoverRow').style.display = isAlbum ? 'none' : '';
+    // Update limit label
+    document.getElementById('chartLimitLabel').textContent = isAlbum ? 'Albums' : 'Tracks';
+    // Adjust default limit for album type (25 is plenty; 50 tracks is normal)
+    const limitEl = document.getElementById('chartLimit');
+    if (isAlbum && parseInt(limitEl.value) > 25) limitEl.value = 25;
+    if (!isAlbum && parseInt(limitEl.value) < 10) limitEl.value = 50;
+}
+
 document.getElementById('chartCountry').addEventListener('change', autoChartName);
 
 function autoChartName() {
@@ -1256,23 +1357,32 @@ async function doChartPreview() {
 
     if (data.error) { setChartStatus('✗ ' + data.error); return; }
 
-    chartTracks = data.tracks.map(t => ({...t, found: null, qobuz_url: null, qobuz_title: null, qobuz_artist: null}));
-    if (!chartTracks.length) { setChartStatus('No tracks returned from source.'); return; }
+    // Server tells us whether this chart returns tracks or albums
+    chartCurrentType = data.type || 'track';
+    const isAlbum = chartCurrentType === 'album';
+    const itemWord = isAlbum ? 'albums' : 'tracks';
+    const ItemWord = isAlbum ? 'Albums' : 'Tracks';
 
-    setChartStatus(`Fetched ${chartTracks.length} tracks — searching Qobuz…`);
+    chartTracks = data.tracks.map(t => ({...t, found: null, qobuz_url: null, qobuz_title: null, qobuz_artist: null}));
+    if (!chartTracks.length) { setChartStatus(`No ${itemWord} returned from source.`); return; }
+
+    setChartStatus(`Fetched ${chartTracks.length} ${itemWord} — searching Qobuz…`);
     document.getElementById('chartPreviewSection').style.display = '';
     renderChartTracks();
 
-    // Match on Qobuz in batches (reuses /search_qobuz_tracks)
+    // Match on Qobuz in batches
     const batchSize = 20;
     let offset = 0;
+    const searchEndpoint = isAlbum ? '/search_qobuz_albums_batch' : '/search_qobuz_tracks';
+    const searchPayloadKey = isAlbum ? 'albums' : 'tracks';
+
     for (let i = 0; i < chartTracks.length; i += batchSize) {
         const batch = chartTracks.slice(i, i + batchSize).map(t => ({name: t.name, artist: t.artist}));
         setChartStatus(`Searching Qobuz… (${Math.min(offset + batchSize, chartTracks.length)}/${chartTracks.length})`);
         try {
-            const r = await fetch('/search_qobuz_tracks', {
+            const r = await fetch(searchEndpoint, {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({tracks: batch})
+                body: JSON.stringify({[searchPayloadKey]: batch})
             });
             const bd = await r.json();
             if (bd.error) { setChartStatus('✗ Qobuz error: ' + bd.error); return; }
@@ -1282,11 +1392,11 @@ async function doChartPreview() {
                 t.qobuz_title = res.qobuz_title || null; t.qobuz_artist = res.qobuz_artist || null;
             });
             offset += batchSize;
-        } catch (e) { setChartStatus('✗ Qobuz search failed: ' + e); return; }
+        } catch (e) { setChartStatus(`✗ Qobuz search failed: ${e}`); return; }
     }
 
     const found = chartTracks.filter(t => t.found).length;
-    setChartStatus(`Matched ${found} of ${chartTracks.length} tracks on Qobuz.`);
+    setChartStatus(`Matched ${found} of ${chartTracks.length} ${itemWord} on Qobuz.`);
     document.getElementById('chartMatchStatus').textContent = `${found}/${chartTracks.length} matched`;
     chartSelectedIdxs.clear();
     chartTracks.forEach((t, i) => { if (t.found) chartSelectedIdxs.add(i); });
@@ -1349,7 +1459,31 @@ document.getElementById('chartDownloadNowBtn').addEventListener('click', async (
     const btn = document.getElementById('chartDownloadNowBtn');
     btn.disabled = true;
 
-    // Upload custom cover if provided (saved to /tmp for this one-time download)
+    const chartName = document.getElementById('chartName').value.trim() || 'Chart';
+    const isAlbumChart = chartCurrentType === 'album';
+
+    if (isAlbumChart) {
+        // Album-type: queue Qobuz album URLs directly via /add_urls
+        setChartStatus(`Adding ${selected.length} albums to queue…`);
+        const urls = selected.map(t => t.qobuz_url);
+        let rawText;
+        try {
+            const r = await fetch('/add_urls', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ ...getFormData(), urls })
+            });
+            rawText = await r.text();
+        } catch (e) { btn.disabled = false; setChartStatus('✗ Request failed: ' + e); return; }
+        let d;
+        try { d = JSON.parse(rawText); }
+        catch (_) { btn.disabled = false; setChartStatus('✗ Server error: ' + rawText.substring(0, 200)); return; }
+        btn.disabled = false;
+        if (d.status === 'ok') { document.getElementById('tab-queue-link').click(); setChartStatus(''); }
+        else setChartStatus('✗ ' + (d.message || JSON.stringify(d)));
+        return;
+    }
+
+    // Track-type: upload optional cover then queue as playlist
     let customCoverPath = '';
     const coverFile = document.getElementById('chartCoverFile').files[0];
     if (coverFile) {
@@ -1364,7 +1498,6 @@ document.getElementById('chartDownloadNowBtn').addEventListener('click', async (
     }
 
     setChartStatus(`Adding ${selected.length} tracks to queue…`);
-    const chartName = document.getElementById('chartName').value.trim() || 'Chart';
     let rawText;
     try {
         const r = await fetch('/chart/add_to_queue', {
@@ -1444,7 +1577,7 @@ function loadChartSchedules() {
 }
 
 const DAY_NAMES = {mon:'Monday',tue:'Tuesday',wed:'Wednesday',thu:'Thursday',fri:'Friday',sat:'Saturday',sun:'Sunday'};
-const SRC_NAMES = {apple:'Apple Music',deezer:'Deezer',lastfm:'Last.fm'};
+const SRC_NAMES = {apple:'Apple Music',deezer:'Deezer',lastfm:'Last.fm',pitchfork:'Pitchfork'};
 
 function renderChartSchedules(schedules) {
     const container = document.getElementById('chartSchedulesList');
@@ -1490,6 +1623,175 @@ function deleteChartSchedule(id) {
 
 document.getElementById('tab-charts-link').addEventListener('click', loadChartSchedules);
 loadChartSchedules();
+
+// ── Discogs ───────────────────────────────────────────────────────────────────
+let discogsTracks = [];           // [{position, name, artist, found, qobuz_url, …}]
+let discogsSelectedIdxs = new Set();
+let discogsCoverPath = '';
+let discogsAlbumName = '';
+
+function setDiscogsStatus(msg) { document.getElementById('discogsStatus').textContent = msg; }
+
+document.getElementById('discogsFetchBtn').addEventListener('click', doDiscogsFetch);
+document.getElementById('discogsUrl').addEventListener('keydown', e => { if (e.key === 'Enter') doDiscogsFetch(); });
+
+async function doDiscogsFetch() {
+    const url = document.getElementById('discogsUrl').value.trim();
+    if (!url) { setDiscogsStatus('Please enter a Discogs URL.'); return; }
+
+    const btn = document.getElementById('discogsFetchBtn');
+    btn.disabled = true;
+    setDiscogsStatus('Fetching from Discogs…');
+    document.getElementById('discogsPreviewSection').style.display = 'none';
+    discogsTracks = []; discogsSelectedIdxs.clear(); discogsCoverPath = ''; discogsAlbumName = '';
+
+    let data;
+    try {
+        const r = await fetch('/discogs/fetch', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({url})
+        });
+        data = await r.json();
+    } catch (e) { btn.disabled = false; setDiscogsStatus('✗ Request failed: ' + e); return; }
+    btn.disabled = false;
+
+    if (data.error) { setDiscogsStatus('✗ ' + data.error); return; }
+
+    // Populate album info
+    discogsAlbumName = data.title || 'Discogs Album';
+    discogsCoverPath = data.cover_path || '';
+    document.getElementById('discogsAlbumTitle').textContent = discogsAlbumName;
+    document.getElementById('discogsAlbumMeta').textContent =
+        [data.album_artist, data.year].filter(Boolean).join(' · ');
+    document.getElementById('discogsTrackCount').textContent =
+        `${data.tracklist.length} track${data.tracklist.length !== 1 ? 's' : ''} found on Discogs`;
+
+    // Cover preview (served via proxy since it's a local /tmp path)
+    const coverWrap = document.getElementById('discogsCoverWrap');
+    if (discogsCoverPath) {
+        document.getElementById('discogsCoverImg').src = `/discogs/cover/${data.release_id}`;
+        coverWrap.style.display = '';
+    } else {
+        coverWrap.style.display = 'none';
+    }
+
+    // Init track list
+    discogsTracks = data.tracklist.map(t => ({
+        ...t, found: null, qobuz_url: null, qobuz_title: null, qobuz_artist: null
+    }));
+
+    document.getElementById('discogsPreviewSection').style.display = '';
+    renderDiscogsTracks();
+    setDiscogsStatus(`Fetched ${discogsTracks.length} tracks — searching Qobuz…`);
+
+    // Batch search Qobuz
+    const batchSize = 20;
+    let offset = 0;
+    for (let i = 0; i < discogsTracks.length; i += batchSize) {
+        const batch = discogsTracks.slice(i, i + batchSize).map(t => ({name: t.name, artist: t.artist}));
+        setDiscogsStatus(`Searching Qobuz… (${Math.min(offset + batchSize, discogsTracks.length)}/${discogsTracks.length})`);
+        try {
+            const r = await fetch('/search_qobuz_tracks', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({tracks: batch})
+            });
+            const bd = await r.json();
+            if (bd.error) { setDiscogsStatus('✗ Qobuz error: ' + bd.error); return; }
+            bd.results.forEach((res, j) => {
+                const t = discogsTracks[offset + j];
+                t.found = res.found; t.qobuz_url = res.qobuz_url || null;
+                t.qobuz_title = res.qobuz_title || null; t.qobuz_artist = res.qobuz_artist || null;
+            });
+            offset += batchSize;
+        } catch (e) { setDiscogsStatus('✗ Qobuz search failed: ' + e); return; }
+        renderDiscogsTracks();
+    }
+
+    const found = discogsTracks.filter(t => t.found).length;
+    setDiscogsStatus(`Matched ${found} of ${discogsTracks.length} tracks on Qobuz.`);
+    document.getElementById('discogsMatchStatus').textContent = `${found}/${discogsTracks.length} matched`;
+    discogsSelectedIdxs.clear();
+    discogsTracks.forEach((t, i) => { if (t.found) discogsSelectedIdxs.add(i); });
+    renderDiscogsTracks(); updateDiscogsCount(); syncDiscogsSelectAll();
+}
+
+function renderDiscogsTracks() {
+    const body = document.getElementById('discogsTrackBody');
+    body.innerHTML = '';
+    discogsTracks.forEach((t, i) => {
+        const checked = discogsSelectedIdxs.has(i) ? 'checked' : '';
+        const disabled = !t.found ? 'disabled' : '';
+        let badge;
+        if (t.found === null)  badge = '<span class="badge badge-secondary">—</span>';
+        else if (t.found)      badge = `<span class="badge badge-success" title="${esc(t.qobuz_artist)} — ${esc(t.qobuz_title)}">✓ Found</span>`;
+        else                   badge = '<span class="badge badge-danger">✗ Not found</span>';
+        const tr = document.createElement('tr');
+        tr.className = discogsSelectedIdxs.has(i) ? 'row-selected' : (t.found === false ? 'row-failed' : '');
+        tr.innerHTML = `<td><input type="checkbox" class="discogs-track-cb" data-idx="${i}" ${checked} ${disabled}></td>
+            <td class="text-muted">${esc(t.position || String(i+1))}</td>
+            <td class="release-title">${esc(t.name)}</td>
+            <td class="text-muted">${esc(t.artist)}</td>
+            <td>${badge}</td>`;
+        body.appendChild(tr);
+    });
+    body.querySelectorAll('.discogs-track-cb').forEach(cb => {
+        cb.addEventListener('change', function() {
+            const idx = parseInt(this.dataset.idx);
+            if (this.checked) discogsSelectedIdxs.add(idx); else discogsSelectedIdxs.delete(idx);
+            this.closest('tr').className = this.checked ? 'row-selected' : '';
+            updateDiscogsCount(); syncDiscogsSelectAll();
+        });
+    });
+}
+
+function updateDiscogsCount() {
+    const n = discogsSelectedIdxs.size;
+    document.getElementById('discogsSelectedCount').textContent = n;
+    document.getElementById('discogsDownloadBtn').disabled = n === 0;
+}
+
+function syncDiscogsSelectAll() {
+    const all = document.querySelectorAll('.discogs-track-cb:not(:disabled)');
+    const checked = [...all].filter(c => c.checked).length;
+    const sa = document.getElementById('discogsSelectAll');
+    sa.indeterminate = checked > 0 && checked < all.length;
+    sa.checked = all.length > 0 && checked === all.length;
+}
+
+document.getElementById('discogsSelectAll').addEventListener('change', function() {
+    discogsTracks.forEach((t, i) => {
+        if (!t.found) return;
+        if (this.checked) discogsSelectedIdxs.add(i); else discogsSelectedIdxs.delete(i);
+    });
+    renderDiscogsTracks(); updateDiscogsCount();
+});
+
+document.getElementById('discogsDownloadBtn').addEventListener('click', async () => {
+    const selected = [...discogsSelectedIdxs].sort((a,b)=>a-b)
+        .map(i => discogsTracks[i]).filter(t => t.qobuz_url);
+    if (!selected.length) return;
+    const btn = document.getElementById('discogsDownloadBtn');
+    btn.disabled = true;
+    setDiscogsStatus(`Adding ${selected.length} tracks to queue…`);
+    let rawText;
+    try {
+        const r = await fetch('/discogs/add_to_queue', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                album_name: discogsAlbumName,
+                cover_path: discogsCoverPath,
+                tracks: selected.map(t => ({qobuz_url: t.qobuz_url, name: t.name, artist: t.artist})),
+            })
+        });
+        rawText = await r.text();
+    } catch (e) { btn.disabled = false; setDiscogsStatus('✗ Request failed: ' + e); return; }
+    let d;
+    try { d = JSON.parse(rawText); }
+    catch (_) { btn.disabled = false; setDiscogsStatus('✗ Server error: ' + rawText.substring(0, 200)); return; }
+    btn.disabled = false;
+    if (d.status === 'ok') { document.getElementById('tab-queue-link').click(); setDiscogsStatus(''); }
+    else setDiscogsStatus('✗ ' + (d.message || JSON.stringify(d)));
+});
 
 function parseCsvRow(line) {
     // RFC 4180-compatible CSV parser
