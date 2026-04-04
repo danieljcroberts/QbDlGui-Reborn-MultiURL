@@ -630,6 +630,7 @@ def search_qobuz_albums_batch():
                     'qobuz_url': f"{QOBUZ_WEB}album/{album['id']}",
                     'qobuz_title': album.get('title', ''),
                     'qobuz_artist': (album.get('artist') or {}).get('name', ''),
+                    'tracks_count': album.get('tracks_count') or None,
                 })
             else:
                 results.append({'found': False, 'qobuz_url': None, 'qobuz_title': None, 'qobuz_artist': None})

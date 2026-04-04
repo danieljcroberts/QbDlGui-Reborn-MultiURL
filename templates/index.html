@@ -773,6 +773,42 @@ function renderReleasesGrid() {
     });
 
     syncSelectAll();
+    fillTrackCounts();
+}
+
+// Lazily fetch track counts from Qobuz and update cards already in the DOM
+async function fillTrackCounts() {
+    const artistName = document.getElementById('artistSearchInput').value.trim();
+    const toFetch = filteredReleases.filter(r => r.track_count === null);
+    if (!toFetch.length) return;
+
+    const batchSize = 20;
+    for (let i = 0; i < toFetch.length; i += batchSize) {
+        const batch = toFetch.slice(i, i + batchSize);
+        let data;
+        try {
+            const r = await fetch('/search_qobuz_albums_batch', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ albums: batch.map(r => ({ name: r.title, artist: artistName })) })
+            });
+            data = await r.json();
+        } catch (e) { break; }
+        if (data.error) break;
+
+        data.results.forEach((res, j) => {
+            if (!res.found || res.tracks_count == null) return;
+            const rel = batch[j];
+            rel.track_count = res.tracks_count;  // update the shared object
+            // Patch the meta line on the card if it's still in the DOM
+            const card = document.querySelector(`.release-card[data-id="${rel.id}"]`);
+            if (!card) return;
+            const metaEl = card.querySelector('.release-card-meta');
+            if (metaEl) {
+                const meta = [rel.year || '', `${res.tracks_count} tracks`].filter(Boolean).join(' · ');
+                metaEl.textContent = meta;
+            }
+        });
+    }
 }
 
 function renderReleases() {
