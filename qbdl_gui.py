@@ -529,10 +529,11 @@ def artist_releases():
                 'year': year,
                 'track_count': None,
                 'release_count': rg.get('release-count', 0),
+                'cover_url': f"https://coverartarchive.org/release-group/{rg['id']}/front-250",
             })
 
-        # Sort by date
-        releases.sort(key=lambda x: x['date'] or '9999')
+        # Sort by release_count DESC (popularity proxy), then date DESC (newest first)
+        releases.sort(key=lambda x: (-x['release_count'], -(int(x['year']) if x['year'] else 0)))
 
         return jsonify(releases=releases, total=len(releases))
 

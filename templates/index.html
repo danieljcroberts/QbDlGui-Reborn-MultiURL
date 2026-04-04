@@ -211,20 +211,28 @@
                 </div>
             </div>
 
-            <!-- Release table -->
+            <!-- Releases section -->
             <div id="releasesSection" style="display:none;">
-                <div class="d-flex align-items-center mb-2">
-                    <div class="custom-control custom-checkbox mr-3">
+                <div class="d-flex align-items-center mb-2 flex-wrap" style="gap:8px;">
+                    <div class="custom-control custom-checkbox mr-1">
                         <input type="checkbox" class="custom-control-input" id="selectAllVisible">
                         <label class="custom-control-label small" for="selectAllVisible">Select all visible</label>
                     </div>
                     <button class="btn btn-primary btn-sm" id="addSelectedBtn" disabled>
                         ▶ Add Selected to Queue (<span id="selectedCount">0</span>)
                     </button>
-                    <span id="artistLoadingMsg" class="ml-3 text-muted small"></span>
+                    <div class="btn-group view-toggle ml-auto" role="group">
+                        <button class="btn btn-outline-secondary active" id="viewGridBtn" title="Grid view">⊞</button>
+                        <button class="btn btn-outline-secondary" id="viewListBtn" title="List view">☰</button>
+                    </div>
+                    <span id="artistLoadingMsg" class="text-muted small w-100 mt-1"></span>
                 </div>
 
-                <table class="table table-dark table-sm release-table" id="releaseTable">
+                <!-- Grid view -->
+                <div id="releaseGrid" class="release-grid mb-3"></div>
+
+                <!-- List view (table) -->
+                <table class="table table-dark table-sm release-table" id="releaseTable" style="display:none;">
                     <thead>
                         <tr>
                             <th style="width:36px"></th>
@@ -232,7 +240,7 @@
                             <th class="sortable" data-col="type" style="width:160px">Type <span class="sort-icon">↕</span></th>
                             <th class="sortable" data-col="date" style="width:80px">Year <span class="sort-icon">↕</span></th>
                             <th class="sortable" data-col="track_count" style="width:80px">Tracks <span class="sort-icon">↕</span></th>
-                            <th style="width:80px">Releases</th>
+                            <th class="sortable" data-col="release_count" style="width:80px">Editions <span class="sort-icon">↕</span></th>
                         </tr>
                     </thead>
                     <tbody id="releaseBody"></tbody>
@@ -582,8 +590,9 @@ document.getElementById('saveSettingsBtn').addEventListener('click', function() 
 // ── Artist Browser ───────────────────────────────────────────────────────────
 let allReleases = [];   // full unfiltered list
 let filteredReleases = []; // after filters applied
-let sortCol = 'date', sortDir = 1;
+let sortCol = 'release_count', sortDir = -1;  // default: popularity desc
 let selectedIds = new Set();
+let viewMode = 'grid';
 
 // Search
 document.getElementById('artistSearchBtn').addEventListener('click', doArtistSearch);
@@ -652,6 +661,8 @@ function buildTypeFilter() {
     const sel = document.getElementById('filterType');
     sel.innerHTML = '<option value="">All types</option>';
     types.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; sel.appendChild(o); });
+    // Default to Albums only
+    if (types.includes('Album')) sel.value = 'Album';
 }
 
 function applyFilters() {
@@ -670,7 +681,7 @@ function applyFilters() {
     });
 
     sortReleases();
-    renderReleases();
+    viewMode === 'grid' ? renderReleasesGrid() : renderReleases();
     document.getElementById('filteredCount').textContent = `${filteredReleases.length} of ${allReleases.length} releases`;
     const visibleIds = new Set(filteredReleases.map(r => r.id));
     for (const id of [...selectedIds]) { if (!visibleIds.has(id)) selectedIds.delete(id); }
@@ -716,7 +727,57 @@ function typeColor(primary) {
     return map[primary] || 'badge-secondary';
 }
 
+function renderReleasesGrid() {
+    document.getElementById('releaseGrid').style.display = '';
+    document.getElementById('releaseTable').style.display = 'none';
+    const grid = document.getElementById('releaseGrid');
+    grid.innerHTML = '';
+    filteredReleases.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'release-card' + (selectedIds.has(r.id) ? ' selected' : '');
+        card.dataset.id = r.id;
+
+        const tracks = r.track_count !== null ? `${r.track_count} tracks` : '';
+        const meta = [r.year || '', tracks].filter(Boolean).join(' · ');
+        const typeHtml = `<span class="badge ${typeColor(r.primary_type)} type-badge" style="font-size:0.68rem;padding:2px 6px;">${esc(r.type)}</span>`;
+
+        card.innerHTML = `
+            <input type="checkbox" class="release-card-checkbox release-checkbox" data-id="${esc(r.id)}" ${selectedIds.has(r.id) ? 'checked' : ''}>
+            <img class="release-card-art" src="${esc(r.cover_url || '')}" alt="" loading="lazy"
+                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <div class="release-card-art-placeholder" style="display:none;">🎵</div>
+            <div class="release-card-body">
+                <div class="release-card-title" title="${esc(r.title)}">${esc(r.title)}</div>
+                <div class="release-card-meta">${esc(meta)}</div>
+                <div class="mt-1">${typeHtml}</div>
+            </div>`;
+
+        card.addEventListener('click', function(e) {
+            if (e.target.classList.contains('release-card-checkbox')) return;
+            const cb = card.querySelector('.release-card-checkbox');
+            cb.checked = !cb.checked;
+            cb.dispatchEvent(new Event('change', {bubbles: true}));
+        });
+
+        grid.appendChild(card);
+    });
+
+    grid.querySelectorAll('.release-card-checkbox').forEach(cb => {
+        cb.addEventListener('change', function() {
+            if (this.checked) selectedIds.add(this.dataset.id);
+            else selectedIds.delete(this.dataset.id);
+            this.closest('.release-card').classList.toggle('selected', this.checked);
+            updateSelectedCount();
+            syncSelectAll();
+        });
+    });
+
+    syncSelectAll();
+}
+
 function renderReleases() {
+    document.getElementById('releaseGrid').style.display = 'none';
+    document.getElementById('releaseTable').style.display = '';
     const body = document.getElementById('releaseBody');
     body.innerHTML = '';
     filteredReleases.forEach(r => {
@@ -747,8 +808,23 @@ function renderReleases() {
     syncSelectAll();
 }
 
+document.getElementById('viewGridBtn').addEventListener('click', function() {
+    viewMode = 'grid';
+    this.classList.add('active');
+    document.getElementById('viewListBtn').classList.remove('active');
+    viewMode === 'grid' ? renderReleasesGrid() : renderReleases();
+});
+
+document.getElementById('viewListBtn').addEventListener('click', function() {
+    viewMode = 'list';
+    this.classList.add('active');
+    document.getElementById('viewGridBtn').classList.remove('active');
+    renderReleases();
+});
+
 function syncSelectAll() {
-    const all = document.querySelectorAll('.release-checkbox');
+    const scope = viewMode === 'grid' ? '#releaseGrid' : '#releaseBody';
+    const all = document.querySelectorAll(scope + ' .release-checkbox');
     const checked = [...all].filter(c => c.checked).length;
     const sa = document.getElementById('selectAllVisible');
     sa.indeterminate = checked > 0 && checked < all.length;
@@ -760,7 +836,7 @@ document.getElementById('selectAllVisible').addEventListener('change', function(
         if (this.checked) selectedIds.add(r.id);
         else selectedIds.delete(r.id);
     });
-    renderReleases();
+    viewMode === 'grid' ? renderReleasesGrid() : renderReleases();
     updateSelectedCount();
 });
 
@@ -925,6 +1001,8 @@ function hideReleases() {
     document.getElementById('releasesSection').style.display = 'none';
     document.getElementById('artistEmptyMsg').style.display = 'none';
     document.getElementById('filtersCard').style.display = 'none';
+    document.getElementById('releaseGrid').innerHTML = '';
+    document.getElementById('releaseBody').innerHTML = '';
     allReleases = [];
     filteredReleases = [];
     selectedIds.clear();
