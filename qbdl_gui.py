@@ -17,7 +17,25 @@ app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
-encryption_key = os.environ.get('ENCRYPTION_KEY') or Fernet.generate_key()
+
+# Persist the encryption key across container restarts.
+# Priority: ENCRYPTION_KEY env var → /config/encryption_key.bin → generate & save new one.
+_KEY_FILE = os.environ.get('ENCRYPTION_KEY_FILE', '/config/encryption_key.bin')
+if os.environ.get('ENCRYPTION_KEY'):
+    encryption_key = os.environ['ENCRYPTION_KEY'].encode() if isinstance(os.environ['ENCRYPTION_KEY'], str) else os.environ['ENCRYPTION_KEY']
+elif os.path.isfile(_KEY_FILE):
+    with open(_KEY_FILE, 'rb') as _kf:
+        encryption_key = _kf.read().strip()
+else:
+    encryption_key = Fernet.generate_key()
+    try:
+        os.makedirs(os.path.dirname(_KEY_FILE), exist_ok=True)
+        with open(_KEY_FILE, 'wb') as _kf:
+            _kf.write(encryption_key)
+        logging.info(f'Generated and saved new encryption key to {_KEY_FILE}')
+    except Exception as _ke:
+        logging.warning(f'Could not save encryption key to {_KEY_FILE}: {_ke}')
+
 fernet = Fernet(encryption_key)
 
 SETTINGS_FILE = os.environ.get('SETTINGS_FILE', '/config/settings.json')
